@@ -21,8 +21,8 @@
                                VerticalAlignment="Center" Margin="10,0,0,0"/>
                 </StackPanel>
 
-                <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Faint}" TextWrapping="Wrap"
-                           Text="Local only · data saved automatically" Margin="8,10"/>
+                <TextBlock x:Name="VersionText" DockPanel.Dock="Bottom" Style="{StaticResource Faint}"
+                           Margin="8,10"/>
 
                 <StackPanel x:Name="NavPanel" DockPanel.Dock="Top"/>
             </DockPanel>

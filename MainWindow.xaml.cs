@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -19,6 +20,20 @@ public partial class MainWindow : Window
         Navigate(0);
         Icon = DragonflyIcon.MakeIcon();
         BrandIcon.Source = DragonflyIcon.BuildMediumImage(DragonflyIcon.Accent);
+        VersionText.Text = $"v{AppVersion}";
+    }
+
+    private static string AppVersion
+    {
+        get
+        {
+            var asm = Assembly.GetExecutingAssembly();
+            // <Version> flows to InformationalVersion (may carry a +git suffix); fall back to the file version.
+            var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (!string.IsNullOrWhiteSpace(info))
+                return info.Split('+')[0];
+            return asm.GetName().Version?.ToString() ?? "0.0.0";
+        }
     }
 
     protected override void OnSourceInitialized(EventArgs e)
