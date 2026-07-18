@@ -23,7 +23,7 @@ public class DataStore
 
     public DataStore()
     {
-        DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Dragonfly");
+        DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OvertorqueCreations", "Dragonfly");
         Directory.CreateDirectory(DataDir);
         DataFile = Path.Combine(DataDir, "dragonfly-data.json");
         Load();

@@ -26,7 +26,7 @@ dotnet run -c Release
 
 ## Where your data lives
 
-`%APPDATA%\Dragonfly\dragonfly-data.json` — one small JSON file.
+`%LOCALAPPDATA%\OvertorqueCreations\Dragonfly\dragonfly-data.json` — one small JSON file.
 Every save also keeps a rolling daily backup (`backup-YYYY-MM-DD.json`, last 14
 days) in the same folder. Copy that folder to back up everything.
 
