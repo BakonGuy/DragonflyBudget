@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 200">
+  <!-- Official Dragonfly logo (Medium/Large tier): filled wings + solid body -->
+  <g fill="#A78BFA">
+    <ellipse cx="176" cy="66"  rx="60" ry="21" transform="rotate(-20 176 66)"/>
+    <ellipse cx="64"  cy="66"  rx="60" ry="21" transform="rotate(20 64 66)"/>
+    <ellipse cx="168" cy="110" rx="48" ry="17" transform="rotate(20 168 110)"/>
+    <ellipse cx="72"  cy="110" rx="48" ry="17" transform="rotate(-20 72 110)"/>
+    <ellipse cx="109" cy="30" rx="10.6" ry="10.6"/>
+    <ellipse cx="131" cy="30" rx="10.6" ry="10.6"/>
+    <ellipse cx="120" cy="42" rx="18.75" ry="13"/>
+    <ellipse cx="120" cy="78" rx="16.25" ry="27"/>
+    <path d="M109 98 C113 145 116 176 120 180 C124 176 127 145 131 98 Z"/>
+  </g>
+</svg>

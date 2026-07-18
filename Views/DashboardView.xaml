@@ -1,0 +1,23 @@
+<UserControl x:Class="Dragonfly.Views.DashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:Dragonfly.Views">
+    <Grid Margin="32,26,32,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.Row="0" Margin="0,0,0,22">
+            <v:MonthHeader x:Name="Header" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+            <StackPanel>
+                <TextBlock Text="Dashboard" Style="{StaticResource H1}"/>
+                <TextBlock x:Name="SubText" Style="{StaticResource Sub}" Margin="0,3,0,0"/>
+            </StackPanel>
+        </DockPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,20,24">
+            <StackPanel x:Name="Body"/>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

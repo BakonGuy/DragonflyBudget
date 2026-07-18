@@ -4,15 +4,25 @@ A dead-simple **native Windows desktop** budget watcher/planner (C# / WPF).
 No accounts, no network, no sync — everything is typed in by you and saved
 automatically on your machine.
 
-## Run it
+## Requirements
 
-Double-click **`Dragonfly.bat`** in the folder above this one. It opens the
-Dragonfly window. (The very first launch builds it once; after that it opens
-instantly.)
+- Windows 10 or 11
+- The [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) (needed to
+  build the app the first time)
 
-Requires the .NET 9 SDK, which is already installed on this machine. The built
-program lives at `Dragonfly\bin\Release\net9.0-windows\Dragonfly.exe` if you'd
-rather pin that to the taskbar or make a desktop shortcut.
+## Build it
+
+1. Download or clone this repository.
+2. Double-click **`Dragonfly.bat`**.
+
+This batch file builds and runs the app; Once built, the program lives at
+`bin\Release\net9.0-windows\Dragonfly.exe`
+
+Prefer the command line? From the repo folder:
+
+```
+dotnet run -c Release
+```
 
 ## Where your data lives
 
@@ -44,9 +54,11 @@ remembers its own paid/cleared state.
 
 ## Building from source
 
+From the repo root:
+
 ```
-cd Dragonfly
 dotnet build -c Release
 ```
+
 Business logic lives in `Models\` and `Services\` (plain C#, UI-agnostic); the
 WPF UI is in `Views\` with the theme in `Theme.xaml`.
