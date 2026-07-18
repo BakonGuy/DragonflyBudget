@@ -1,0 +1,16 @@
+{
+  "ProjectName": "Dragonfly",
+  "SolutionPath": "Dragonfly.csproj",
+  "ProjectPath": "Dragonfly.csproj",
+  "PrimaryProjectPath": "Dragonfly.csproj",
+  "IncludedProjectPaths": [
+    "Dragonfly.csproj"
+  ],
+  "BuildConfiguration": "Release",
+  "UpgradeCode": "951B7574-8291-49D5-8A14-BEAD8A6B1974",
+  "BuildOutputFolder": "bin\\Release\\net9.0-windows",
+  "MainExecutable": "bin\\Release\\net9.0-windows\\Dragonfly.exe",
+  "InstallDirectoryName": "Dragonfly",
+  "AddToPath": false,
+  "RunAtStartup": false
+}
