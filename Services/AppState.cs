@@ -7,6 +7,9 @@ public class AppState
     public BudgetService Budget { get; }
     public string Month { get; set; } = BudgetService.CurrentMonth();
 
+    /// <summary>User settings (theme, autopay behaviour, sort prefs, updater).</summary>
+    public Models.AppSettings Settings => Store.Data.Settings;
+
     /// <summary>Raised when the selected month changes.</summary>
     public event Action? MonthChanged;
     /// <summary>Raised when underlying data is saved/changed.</summary>

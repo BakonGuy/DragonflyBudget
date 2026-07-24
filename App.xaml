@@ -1,13 +1,7 @@
 <Application x:Class="Dragonfly.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:Dragonfly"
-             StartupUri="MainWindow.xaml">
-    <Application.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="Theme.xaml"/>
-            </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
-    </Application.Resources>
+             xmlns:local="clr-namespace:Dragonfly">
+    <!-- Resources (palette + Theme.xaml styles) are assembled in App.OnStartup so the code-built
+         palette brushes are present before the styles load. See Services/ThemeManager.cs. -->
 </Application>

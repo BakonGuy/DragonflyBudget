@@ -23,6 +23,9 @@ public partial class MainWindow : Window
         VersionText.Text = $"v{AppVersion}";
     }
 
+    private void Settings_Click(object sender, RoutedEventArgs e)
+        => new Views.SettingsWindow(this).ShowDialog();
+
     private static string AppVersion
     {
         get

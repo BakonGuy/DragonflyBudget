@@ -2,9 +2,9 @@ using Dragonfly.Models;
 
 namespace Dragonfly.Services;
 
-public record BillRow(Bill Bill, BillMonthStatus Status, decimal Amount, DateOnly DueDate)
+public record BillRow(Bill Bill, BillMonthStatus Status, decimal Amount, DateOnly DueDate, PayStatus Effective, bool AutoPaid)
 {
-    public decimal Remaining => Status.Status switch
+    public decimal Remaining => Effective switch
     {
         PayStatus.Paid or PayStatus.Skipped => 0,
         PayStatus.Partial => Math.Max(0, Amount - Status.AmountPaid),
@@ -39,6 +39,13 @@ public class BudgetService(DataStore store)
         var d = new DateOnly(y, m, 1).AddMonths(delta);
         return MonthKey(d);
     }
+    /// <summary>Whole months from <paramref name="start"/> to <paramref name="month"/> (can be negative).</summary>
+    public static int MonthsBetween(string start, string month)
+    {
+        var (sy, sm) = ParseMonth(start);
+        var (my, mm) = ParseMonth(month);
+        return (my - sy) * 12 + (mm - sm);
+    }
     public static string MonthLabel(string key)
     {
         var (y, m) = ParseMonth(key);
@@ -50,9 +57,30 @@ public class BudgetService(DataStore store)
         string.Compare(month, start, StringComparison.Ordinal) >= 0 &&
         (end == null || string.Compare(month, end, StringComparison.Ordinal) <= 0);
 
+    // ---- scheduling ----
+    /// <summary>Resolve the effective repeat schedule, falling back to the legacy Recurrence enum.</summary>
+    public static Schedule EffectiveSchedule(Schedule? repeat, Recurrence legacy) => repeat ?? Schedule.From(legacy);
+
+    /// <summary>
+    /// Does a repeating item anchored at <paramref name="startMonth"/> occur in <paramref name="month"/>?
+    /// Honors the interval (every N months / years); one-off items match only their start month.
+    /// </summary>
+    static bool ScheduleHits(Schedule s, string startMonth, string? endMonth, string month)
+    {
+        if (s.IsOneOff) return startMonth == month;
+        if (!InRange(month, startMonth, endMonth)) return false;
+        int step = s.Unit == RepeatUnit.Year ? s.Interval * 12 : s.Interval;
+        if (step <= 0) step = 1;
+        int diff = MonthsBetween(startMonth, month);
+        return diff >= 0 && diff % step == 0;
+    }
+
     // ---- bills ----
-    public bool BillAppliesTo(Bill b, string month) =>
-        b.Recurrence == Recurrence.OneOff ? b.StartMonth == month : InRange(month, b.StartMonth, b.EndMonth);
+    public bool BillAppliesTo(Bill b, string month)
+    {
+        if (b.Repeat != null) return ScheduleHits(b.Repeat, b.StartMonth, b.EndMonth, month);
+        return b.Recurrence == Recurrence.OneOff ? b.StartMonth == month : InRange(month, b.StartMonth, b.EndMonth);
+    }
 
     public BillMonthStatus GetBillStatus(Bill b, string month)
     {
@@ -69,27 +97,46 @@ public class BudgetService(DataStore store)
     {
         var (y, m) = ParseMonth(month);
         int days = DateTime.DaysInMonth(y, m);
+        var today = DateOnly.FromDateTime(DateTime.Today);
         return Data.Bills.Where(b => BillAppliesTo(b, month))
             .Select(b =>
             {
                 var s = GetBillStatus(b, month);
                 var amt = s.AmountOverride ?? b.Amount;
                 var day = Math.Clamp(s.DueDayOverride ?? b.DueDay, 1, days);
-                return new BillRow(b, s, amt, new DateOnly(y, m, day));
+                var due = new DateOnly(y, m, day);
+                var (eff, autoPaid) = EffectiveStatus(b, s, due, today);
+                return new BillRow(b, s, amt, due, eff, autoPaid);
             })
             .OrderBy(r => r.DueDate).ThenBy(r => r.Bill.Name)
             .ToList();
     }
 
+    /// <summary>
+    /// The status to use for display and totals. When "autopay counts as paid" is on, an autopay
+    /// bill the user hasn't touched is treated as Paid once its due date arrives.
+    /// Returns the effective status and whether it was auto-marked (vs. the stored status).
+    /// </summary>
+    public (PayStatus Status, bool AutoPaid) EffectiveStatus(Bill b, BillMonthStatus s, DateOnly dueDate, DateOnly today)
+    {
+        if (b.AutoPay && Data.Settings.AutopayCountsAsPaid && !s.UserSet)
+        {
+            if (today >= dueDate) return (PayStatus.Paid, true);
+            return (PayStatus.Unpaid, false);
+        }
+        return (s.Status, false);
+    }
+
     // ---- pending ----
     public bool PendingAppliesTo(PendingItem p, string month)
     {
-        if (p.Recurrence == Recurrence.OneOff)
+        var s = EffectiveSchedule(p.Repeat, p.Recurrence);
+        if (s.IsOneOff)
         {
             var anchor = p.ExpectedDate.HasValue ? MonthKey(p.ExpectedDate.Value) : p.StartMonth;
             return anchor == month;
         }
-        return InRange(month, p.StartMonth, p.EndMonth);
+        return ScheduleHits(s, p.StartMonth, p.EndMonth, month);
     }
 
     public PendingMonthStatus GetPendingStatus(PendingItem p, string month)
@@ -108,6 +155,47 @@ public class BudgetService(DataStore store)
             .Select(p => new PendingRow(p, GetPendingStatus(p, month)))
             .OrderBy(r => r.Item.ExpectedDate ?? DateOnly.MaxValue)
             .ToList();
+
+    // ---- balance history ----
+    /// <summary>
+    /// Record an account's balance for a day. Keeps at most one entry per account per day: the
+    /// latest write wins, and a manual edit takes precedence over an automatic one on the same day.
+    /// </summary>
+    public void RecordBalance(Guid accountId, decimal balance, DateOnly date, BalanceSource source)
+    {
+        bool manual = source == BalanceSource.Manual;
+        var existing = Data.BalanceHistory.FirstOrDefault(e => e.AccountId == accountId && e.Date == date);
+        if (existing != null)
+        {
+            // An automatic update never overwrites a manual one recorded the same day.
+            if (existing.IsManual && !manual) return;
+            existing.Balance = balance;
+            existing.IsManual = manual;
+            existing.Source = source;
+        }
+        else
+        {
+            Data.BalanceHistory.Add(new BalanceEntry
+            {
+                AccountId = accountId, Date = date, Balance = balance, IsManual = manual, Source = source,
+            });
+        }
+    }
+
+    // ---- budget categories ----
+    public decimal BudgetSpent(Guid categoryId, string month) =>
+        Data.BudgetSpend.FirstOrDefault(e => e.CategoryId == categoryId && e.Month == month)?.Spent ?? 0m;
+
+    public BudgetSpendEntry GetBudgetSpend(Guid categoryId, string month)
+    {
+        var e = Data.BudgetSpend.FirstOrDefault(x => x.CategoryId == categoryId && x.Month == month);
+        if (e == null)
+        {
+            e = new BudgetSpendEntry { CategoryId = categoryId, Month = month };
+            Data.BudgetSpend.Add(e);
+        }
+        return e;
+    }
 
     // ---- summary ----
     public MonthSummary Summarize(string month)

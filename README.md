@@ -26,9 +26,14 @@ dotnet run -c Release
 
 ## Where your data lives
 
-`%LOCALAPPDATA%\OvertorqueCreations\Dragonfly\dragonfly-data.json` — one small JSON file.
+`%LOCALAPPDATA%\OvertorqueCreations\Dragonfly\Saved\dragonfly-data.json` — one small JSON file.
 Every save also keeps a rolling daily backup (`backup-YYYY-MM-DD.json`, last 14
-days) in the same folder. Copy that folder to back up everything.
+days) under `Saved\Backups\`. Copy the `Saved` folder to back up everything.
+
+(The app installs to `%LOCALAPPDATA%\OvertorqueCreations\Dragonfly`, so your data is
+kept in the `Saved` subfolder to stay separate from the program files. Data from
+Dragonfly 1.0, which lived directly in that folder, is moved into `Saved` automatically
+on first launch.)
 
 ## The five screens
 

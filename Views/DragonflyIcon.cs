@@ -13,7 +13,8 @@ namespace Dragonfly.Views;
 /// </summary>
 public static class DragonflyIcon
 {
-    public static readonly Color Accent = (Color)ColorConverter.ConvertFromString("#A78BFA");
+    /// <summary>The active theme's accent colour, used for the brand mark and window icon.</summary>
+    public static Color Accent => Services.ThemeManager.AccentColor;
 
     // ── MEDIUM: sidebar mark; also the reference for Large. ──
     public static Drawing BuildMediumDrawing(Color color)

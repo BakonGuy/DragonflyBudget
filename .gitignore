@@ -42,3 +42,6 @@ $RECYCLE.BIN/
 *.log
 *.tmp
 /*.msi
+
+# ── Local dev fixtures (may contain real personal data) ──────
+dev/

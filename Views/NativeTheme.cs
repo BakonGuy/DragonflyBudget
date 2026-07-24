@@ -24,10 +24,10 @@ public static class NativeTheme
         int useDark = 1;
         DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref useDark, sizeof(int));
 
-        // Match the caption + border to the app background for a seamless look.
-        int caption = ToColorRef((Color)ColorConverter.ConvertFromString("#14121C"));
+        // Match the caption + border to the active theme for a seamless look.
+        int caption = ToColorRef(Services.ThemeManager.BgColor);
         DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref caption, sizeof(int));
-        int border = ToColorRef((Color)ColorConverter.ConvertFromString("#2B2740"));
+        int border = ToColorRef(Services.ThemeManager.BorderColor);
         DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref border, sizeof(int));
     }
 

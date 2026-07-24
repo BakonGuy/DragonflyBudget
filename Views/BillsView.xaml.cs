@@ -62,7 +62,7 @@ public partial class BillsView : UserControl
         {
             int row = table.RowDefinitions.Count;
             table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            bool done = r.Status.Status is PayStatus.Paid or PayStatus.Skipped;
+            bool done = r.Effective is PayStatus.Paid or PayStatus.Skipped;
             bool overdue = r.Remaining > 0 && r.DueDate < today;
             double op = done ? 0.5 : 1.0;
 
@@ -95,13 +95,15 @@ public partial class BillsView : UserControl
 
             // status
             var stCell = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
-            stCell.Children.Add(r.Status.Status switch
-            {
-                PayStatus.Paid => Badge("Paid", "Good", "Good"),
-                PayStatus.Partial => Badge($"Partial · {Fmt.Money(r.Remaining)} left", "Warn", "Warn"),
-                PayStatus.Skipped => Badge("Skipped", "TextFaint", "TextFaint"),
-                _ => Badge("Unpaid", "TextDim", "TextDim"),
-            });
+            stCell.Children.Add(r.AutoPaid
+                ? Badge("Auto-paid", "Accent", "Accent")
+                : r.Effective switch
+                {
+                    PayStatus.Paid => Badge("Paid", "Good", "Good"),
+                    PayStatus.Partial => Badge($"Partial · {Fmt.Money(r.Remaining)} left", "Warn", "Warn"),
+                    PayStatus.Skipped => Badge("Skipped", "TextFaint", "TextFaint"),
+                    _ => Badge("Unpaid", "TextDim", "TextDim"),
+                });
             Place(table, stCell, row, 3);
 
             // payment
@@ -112,12 +114,17 @@ public partial class BillsView : UserControl
             var acts = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 4, 6) };
             if (r.Remaining > 0)
             {
-                acts.Children.Add(Space(Btn("Paid", "BtnSm", (_, _) => { r.Status.Status = PayStatus.Paid; r.Status.AmountPaid = r.Amount; Save(); })));
+                acts.Children.Add(Space(Btn("Paid", "BtnSm", (_, _) => { r.Status.Status = PayStatus.Paid; r.Status.AmountPaid = r.Amount; r.Status.UserSet = true; Save(); })));
                 acts.Children.Add(Space(Btn("Partial", "BtnGhost", (_, _) => PartialDialog(r))));
+            }
+            else if (r.AutoPaid)
+            {
+                // Autopay assumed it paid — let the user flag the rare failure.
+                acts.Children.Add(Space(Btn("Mark unpaid", "BtnGhost", (_, _) => { r.Status.Status = PayStatus.Unpaid; r.Status.AmountPaid = 0; r.Status.UserSet = true; Save(); })));
             }
             else
             {
-                acts.Children.Add(Space(Btn("Undo", "BtnGhost", (_, _) => { r.Status.Status = PayStatus.Unpaid; r.Status.AmountPaid = 0; Save(); })));
+                acts.Children.Add(Space(Btn("Undo", "BtnGhost", (_, _) => { r.Status.Status = PayStatus.Unpaid; r.Status.AmountPaid = 0; r.Status.UserSet = true; Save(); })));
             }
             acts.Children.Add(Space(Btn("✎", "BtnGhost", (_, _) => EditBill(r.Bill))));
             Place(table, acts, row, 5);
@@ -145,6 +152,7 @@ public partial class BillsView : UserControl
             decimal amount = st.AmountOverride ?? r.Bill.Amount;
             st.AmountPaid = ParseMoney(paid.Text);
             st.Status = st.AmountPaid <= 0 ? PayStatus.Unpaid : st.AmountPaid >= amount ? PayStatus.Paid : PayStatus.Partial;
+            st.UserSet = true;
             Save();
         }
     }

@@ -109,7 +109,7 @@ public partial class DashboardView : UserControl
                 amt.VerticalAlignment = VerticalAlignment.Center;
                 Place(table, amt, row, 2);
 
-                var pay = Btn("Mark paid", "BtnSm", (_, _) => { r.Status.Status = PayStatus.Paid; r.Status.AmountPaid = r.Amount; Save(); });
+                var pay = Btn("Mark paid", "BtnSm", (_, _) => { r.Status.Status = PayStatus.Paid; r.Status.AmountPaid = r.Amount; r.Status.UserSet = true; Save(); });
                 pay.Margin = new Thickness(10, 6, 0, 6);
                 Place(table, pay, row, 3);
             }

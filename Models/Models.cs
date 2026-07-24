@@ -2,6 +2,29 @@ namespace Dragonfly.Models;
 
 public enum Recurrence { OneOff, Monthly }
 public enum PayStatus { Unpaid, Partial, Paid, Skipped }
+public enum AccountType { Bank, Cash, CreditCard }
+public enum AppTheme { Purple, GreyOrange }
+public enum BalanceSource { Manual, MarkPaid, Autopay }
+
+/// <summary>
+/// How often something repeats. Supersedes the legacy <see cref="Recurrence"/> enum:
+/// <c>Unit == null</c> means one-off, otherwise it repeats every <see cref="Interval"/> units.
+/// </summary>
+public class Schedule
+{
+    public RepeatUnit Unit { get; set; } = RepeatUnit.Month;
+    public int Interval { get; set; } = 1;
+
+    public static Schedule Monthly => new() { Unit = RepeatUnit.Month, Interval = 1 };
+    public static Schedule OneOff => new() { Unit = RepeatUnit.None, Interval = 0 };
+
+    /// <summary>Build a schedule from the legacy two-value recurrence.</summary>
+    public static Schedule From(Recurrence r) => r == Recurrence.Monthly ? Monthly : OneOff;
+
+    public bool IsOneOff => Unit == RepeatUnit.None;
+}
+
+public enum RepeatUnit { None, Month, Year }
 
 public class BankAccount
 {
@@ -10,6 +33,24 @@ public class BankAccount
     public decimal Balance { get; set; }
     public int SortOrder { get; set; }
     public bool Archived { get; set; }
+
+    // v1.1: account kind + credit-card fields (dormant until the accounts UI lands in Phase 3).
+    public AccountType Type { get; set; } = AccountType.Bank;
+    public decimal CreditLimit { get; set; }         // credit cards only
+    public bool ShowInRepayment { get; set; }        // surface this card on the Repayment screen
+}
+
+/// <summary>
+/// One recorded balance for an account on a given day. At most one entry per account per day is
+/// kept — the latest write wins, and a manual edit takes precedence over an automatic one.
+/// </summary>
+public class BalanceEntry
+{
+    public Guid AccountId { get; set; }
+    public DateOnly Date { get; set; }
+    public decimal Balance { get; set; }
+    public bool IsManual { get; set; }
+    public BalanceSource Source { get; set; } = BalanceSource.Manual;
 }
 
 public class Bill
@@ -25,6 +66,11 @@ public class Bill
     public string PaymentMethod { get; set; } = ""; // e.g. PayPal, Direct
     public string AccountName { get; set; } = "";   // which bank/card it pulls from
     public string Notes { get; set; } = "";
+
+    // v1.1: richer repeat schedule (every N months / years). When null, falls back to Recurrence.
+    public Schedule? Repeat { get; set; }
+    public Guid? AccountId { get; set; }            // structured link to a BankAccount/card
+    public int SortOrder { get; set; }              // manual ordering
 }
 
 // Per-month state of a bill. Created lazily; never deleted, so history is kept.
@@ -37,6 +83,13 @@ public class BillMonthStatus
     public decimal? AmountOverride { get; set; }   // this month's amount differs
     public int? DueDayOverride { get; set; }
     public string Notes { get; set; } = "";
+
+    // v1.1: when the bill was actually paid. Null = treat as the due date.
+    public DateOnly? PaidDate { get; set; }
+
+    // v1.1: has the user explicitly set this month's status? Distinguishes an untouched Unpaid
+    // (which autopay may auto-mark paid) from one the user deliberately left/marked Unpaid.
+    public bool UserSet { get; set; }
 }
 
 public class PendingItem
@@ -50,6 +103,10 @@ public class PendingItem
     public string StartMonth { get; set; } = "";
     public string? EndMonth { get; set; }
     public string Notes { get; set; } = "";
+
+    // v1.1: richer repeat schedule. When null, falls back to Recurrence.
+    public Schedule? Repeat { get; set; }
+    public int SortOrder { get; set; }
 }
 
 public class PendingMonthStatus
@@ -83,6 +140,48 @@ public class InterestDebt // repayment calculator entries
     public bool Archived { get; set; }
 }
 
+/// <summary>A flexible-spend budget (e.g. groceries): a monthly cap the user tracks against.</summary>
+public class BudgetCategory
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public decimal MonthlyCap { get; set; }
+    public int SortOrder { get; set; }
+    public bool Archived { get; set; }
+}
+
+/// <summary>Per-month running spend logged against a <see cref="BudgetCategory"/>.</summary>
+public class BudgetSpendEntry
+{
+    public Guid CategoryId { get; set; }
+    public string Month { get; set; } = "";        // "yyyy-MM"
+    public decimal Spent { get; set; }
+    public string Notes { get; set; } = "";
+}
+
+/// <summary>Per-screen sort preference.</summary>
+public class SortPref
+{
+    public string Key { get; set; } = "manual";    // manual | date | amount | status | name
+    public bool Descending { get; set; }
+}
+
+/// <summary>User-configurable settings, persisted with the data file.</summary>
+public class AppSettings
+{
+    public AppTheme Theme { get; set; } = AppTheme.Purple;
+
+    /// <summary>Autopay bills are treated as paid on/after their due date (user can still override).</summary>
+    public bool AutopayCountsAsPaid { get; set; } = true;
+
+    /// <summary>Per-screen sort choices, keyed by screen name ("bills", "pending", ...).</summary>
+    public Dictionary<string, SortPref> Sorts { get; set; } = new();
+
+    // Updater
+    public bool CheckForUpdates { get; set; } = true;
+    public string? SkippedUpdateVersion { get; set; }
+}
+
 public class AppData
 {
     public int Version { get; set; } = 1;
@@ -94,4 +193,10 @@ public class AppData
     public List<PendingMonthStatus> PendingStatuses { get; set; } = [];
     public List<Debt> Debts { get; set; } = [];
     public List<InterestDebt> InterestDebts { get; set; } = [];
+
+    // v1.1 additions
+    public AppSettings Settings { get; set; } = new();
+    public List<BalanceEntry> BalanceHistory { get; set; } = [];
+    public List<BudgetCategory> BudgetCategories { get; set; } = [];
+    public List<BudgetSpendEntry> BudgetSpend { get; set; } = [];
 }
