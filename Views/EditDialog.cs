@@ -84,6 +84,10 @@ public class EditDialog : Window
 
     /// <summary>Add a field spanning full width, or half (col 0/2) when half=true and paired.</summary>
     public void Add(string label, FrameworkElement control, bool full = true, bool rightColumn = false)
+        => AddTracked(label, control, full, rightColumn);
+
+    /// <summary>Like <see cref="Add"/>, but returns the field container so it can be shown/hidden.</summary>
+    public FrameworkElement AddTracked(string label, FrameworkElement control, bool full = true, bool rightColumn = false)
     {
         var stack = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
         stack.Children.Add(new TextBlock { Text = label, Style = St("FieldLabel") });
@@ -107,6 +111,7 @@ public class EditDialog : Window
             _fields.Children.Add(stack);
             if (rightColumn) _row++;
         }
+        return stack;
     }
 
     public void AddHint(string text)

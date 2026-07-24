@@ -15,7 +15,7 @@ public record BillRow(Bill Bill, BillMonthStatus Status, decimal Amount, DateOnl
 public record PendingRow(PendingItem Item, PendingMonthStatus Status);
 
 public record MonthSummary(
-    decimal BankTotal, decimal Cash, decimal TotalFunds,
+    decimal BankTotal, decimal Cash, decimal TotalFunds, decimal CreditTotal,
     decimal TotalMonthlyBills, decimal TotalUnpaid, decimal DueSoon, decimal AfterDueSoonPaid,
     decimal PendingIn, decimal PendingOut, decimal AmountBehind, decimal EndOfMonthProjection,
     int UnpaidCount, int DueSoonCount);
@@ -165,6 +165,92 @@ public class BudgetService(DataStore store)
             .Concat(Data.Bills.Select(b => b.AccountName))
             .Where(s => !string.IsNullOrWhiteSpace(s)).Distinct();
 
+    // ---- accounts ----
+    public IEnumerable<BankAccount> ActiveAccounts() => Data.Banks.Where(a => !a.Archived).OrderBy(a => a.SortOrder);
+    public IEnumerable<BankAccount> BankAccounts() => ActiveAccounts().Where(a => a.Type != AccountType.CreditCard);
+    public IEnumerable<BankAccount> CreditCards() => ActiveAccounts().Where(a => a.Type == AccountType.CreditCard);
+    public BankAccount? FindAccount(Guid? id) => id == null ? null : Data.Banks.FirstOrDefault(a => a.Id == id);
+
+    /// <summary>Set an account's balance and record it in the day's history (manual by default).</summary>
+    public void SetBalance(BankAccount a, decimal newBalance, BalanceSource source = BalanceSource.Manual)
+    {
+        a.Balance = newBalance;
+        if (source == BalanceSource.Manual) a.LastUserBalanceDate = DateOnly.FromDateTime(DateTime.Today);
+        RecordBalance(a.Id, newBalance, DateOnly.FromDateTime(DateTime.Today), source);
+    }
+
+    /// <summary>Linked bill payments (date, amount) for an account — effectively-paid bills with a resolved paid date.</summary>
+    public IEnumerable<(DateOnly Date, decimal Amount)> LinkedPayments(Guid accountId)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        foreach (var bill in Data.Bills.Where(b => b.AccountId == accountId))
+        {
+            foreach (var st in Data.BillStatuses.Where(s => s.BillId == bill.Id))
+            {
+                var (y, m) = ParseMonth(st.Month);
+                int day = Math.Clamp(st.DueDayOverride ?? bill.DueDay, 1, DateTime.DaysInMonth(y, m));
+                var due = new DateOnly(y, m, day);
+                var (eff, _) = EffectiveStatus(bill, st, due, today);
+                if (eff is not (PayStatus.Paid or PayStatus.Partial)) continue;
+                decimal amt = eff == PayStatus.Partial ? st.AmountPaid : st.AmountOverride ?? bill.Amount;
+                yield return (st.PaidDate ?? due, amt);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The balance to display: the user's last entered value minus (bank) or plus (card) any linked
+    /// bills paid after that entry. Nothing is written — the stored balance stays the user's baseline.
+    /// </summary>
+    public decimal EffectiveBalance(BankAccount a)
+    {
+        decimal since = LinkedPayments(a.Id).Where(p => p.Date > a.LastUserBalanceDate).Sum(p => p.Amount);
+        // A bill paid on a card increases what's owed; on a bank account it reduces the balance.
+        // Cards are still kept separate from bank balances in the summary (own section, not funds).
+        return a.Type == AccountType.CreditCard ? a.Balance + since : a.Balance - since;
+    }
+
+    public record BalancePoint(DateOnly Date, decimal Balance, bool IsManual);
+
+    /// <summary>
+    /// Effective balance over time for a chart: user entries (manual) reset the baseline and each
+    /// linked payment steps it; same-day user entries take precedence over payments.
+    /// </summary>
+    public List<BalancePoint> BalanceSeries(BankAccount a)
+    {
+        var events = new List<(DateOnly Date, bool Manual, decimal Val)>();
+        var manuals = Data.BalanceHistory.Where(e => e.AccountId == a.Id && e.IsManual).ToList();
+        if (manuals.Count == 0)
+            events.Add((a.LastUserBalanceDate, true, a.Balance));
+        else
+            events.AddRange(manuals.Select(e => (e.Date, true, e.Balance)));
+        events.AddRange(LinkedPayments(a.Id).Select(p => (p.Date, false, p.Amount)));
+
+        // Manual entries first on ties, so a same-day user value wins over that day's payments.
+        var ordered = events.OrderBy(e => e.Date).ThenByDescending(e => e.Manual).ToList();
+
+        var points = new List<BalancePoint>();
+        decimal running = 0;
+        DateOnly baseDate = DateOnly.MinValue;
+        bool started = false;
+        foreach (var ev in ordered)
+        {
+            if (ev.Manual)
+            {
+                running = ev.Val; baseDate = ev.Date; started = true;
+                points.Add(new BalancePoint(ev.Date, running, true));
+            }
+            else
+            {
+                if (!started) continue;
+                if (ev.Date <= baseDate) continue; // user value for that day takes precedence
+                running += a.Type == AccountType.CreditCard ? ev.Val : -ev.Val;
+                points.Add(new BalancePoint(ev.Date, running, false));
+            }
+        }
+        return points;
+    }
+
     // ---- balance history ----
     /// <summary>
     /// Record an account's balance for a day. Keeps at most one entry per account per day: the
@@ -214,7 +300,8 @@ public class BudgetService(DataStore store)
         var bills = BillsFor(month);
         var pending = PendingFor(month);
 
-        decimal bank = Data.Banks.Where(b => !b.Archived).Sum(b => b.Balance);
+        decimal bank = BankAccounts().Sum(EffectiveBalance);
+        decimal credit = CreditCards().Sum(EffectiveBalance);
         decimal funds = bank + Data.CashOnHand;
         decimal totalMonthly = bills.Where(b => b.Status.Status != PayStatus.Skipped).Sum(b => b.Amount);
         decimal totalUnpaid = bills.Sum(b => b.Remaining);
@@ -224,7 +311,7 @@ public class BudgetService(DataStore store)
         decimal pendingOut = pending.Where(p => !p.Status.Cleared && p.Item.Amount < 0).Sum(p => p.Item.Amount);
 
         return new MonthSummary(
-            BankTotal: bank, Cash: Data.CashOnHand, TotalFunds: funds,
+            BankTotal: bank, Cash: Data.CashOnHand, TotalFunds: funds, CreditTotal: credit,
             TotalMonthlyBills: totalMonthly, TotalUnpaid: totalUnpaid,
             DueSoon: dueSoon, AfterDueSoonPaid: funds - dueSoon,
             PendingIn: pendingIn, PendingOut: pendingOut,

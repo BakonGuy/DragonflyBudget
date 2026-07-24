@@ -34,10 +34,19 @@ public class BankAccount
     public int SortOrder { get; set; }
     public bool Archived { get; set; }
 
-    // v1.1: account kind + credit-card fields (dormant until the accounts UI lands in Phase 3).
+    // v1.1: account kind + credit-card fields.
     public AccountType Type { get; set; } = AccountType.Bank;
     public decimal CreditLimit { get; set; }         // credit cards only
     public bool ShowInRepayment { get; set; }        // surface this card on the Repayment screen
+
+    // v1.1: <see cref="Balance"/> is the last value the user entered (the baseline). The displayed
+    // balance is this minus linked bills paid since this date (see BudgetService.EffectiveBalance).
+    public DateOnly LastUserBalanceDate { get; set; }
+
+    // v1.1: credit-card repayment fields (used when ShowInRepayment is on).
+    public decimal AprPercent { get; set; }
+    public decimal MonthlyPayment { get; set; }
+    public int GoalMonths { get; set; } = 12;
 }
 
 /// <summary>
@@ -180,6 +189,13 @@ public class AppSettings
     // Updater
     public bool CheckForUpdates { get; set; } = true;
     public string? SkippedUpdateVersion { get; set; }
+
+    // Main window bounds, remembered between sessions.
+    public double WindowWidth { get; set; } = 1240;
+    public double WindowHeight { get; set; } = 820;
+    public double? WindowLeft { get; set; }
+    public double? WindowTop { get; set; }
+    public bool WindowMaximized { get; set; }
 }
 
 public class AppData

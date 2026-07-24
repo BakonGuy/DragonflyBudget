@@ -24,29 +24,44 @@ public partial class RepaymentView : UserControl
     private void Save() => S.Save();
     private void Add_Click(object sender, RoutedEventArgs e) => EditDebt(null);
 
+    // A repayment target — either an interest debt or a credit card set to show here.
+    private record RepayItem(string Name, bool IsCard, decimal Balance, decimal Apr, decimal Payment,
+        int GoalMonths, string Notes, Action<decimal> SetPayment, Action<int> SetGoal, Action Edit);
+
+    private RepayItem DebtItem(InterestDebt d) => new(
+        d.Name, false, d.Balance, d.AprPercent, d.MonthlyPayment, d.GoalMonths, d.Notes,
+        p => d.MonthlyPayment = p, g => d.GoalMonths = g, () => EditDebt(d));
+
+    private RepayItem CardItem(BankAccount c) => new(
+        c.Name, true, B.EffectiveBalance(c), c.AprPercent, c.MonthlyPayment, c.GoalMonths, "",
+        p => c.MonthlyPayment = p, g => c.GoalMonths = g,
+        () => AccountDialog.Show(Window.GetWindow(this)!, B, c, Save));
+
     private void Refresh()
     {
         Body.Children.Clear();
-        var debts = B.Data.InterestDebts.Where(d => !d.Archived).ToList();
+        var items = B.Data.InterestDebts.Where(d => !d.Archived).Select(DebtItem)
+            .Concat(B.CreditCards().Where(c => c.ShowInRepayment).Select(CardItem))
+            .ToList();
 
-        if (debts.Count == 0)
+        if (items.Count == 0)
         {
             Body.Children.Add(Card(Empty("Nothing here yet. Add a credit card or car loan to see payoff timelines, total interest, and the payment that hits your goal date.")));
             return;
         }
 
         var wrap = new WrapPanel();
-        foreach (var d in debts)
-            wrap.Children.Add(BuildCard(d));
+        foreach (var it in items)
+            wrap.Children.Add(BuildCard(it));
         Body.Children.Add(wrap);
     }
 
-    private Border BuildCard(InterestDebt debt)
+    private Border BuildCard(RepayItem item)
     {
-        var payoff = BudgetService.CalcPayoff(debt.Balance, debt.AprPercent, debt.MonthlyPayment);
-        decimal interestOnly = Math.Round(debt.Balance * debt.AprPercent / 100m / 12m, 2);
-        var goalPayment = BudgetService.CalcPaymentForMonths(debt.Balance, debt.AprPercent, debt.GoalMonths);
-        var goalPayoff = BudgetService.CalcPayoff(debt.Balance, debt.AprPercent, goalPayment);
+        var payoff = BudgetService.CalcPayoff(item.Balance, item.Apr, item.Payment);
+        decimal interestOnly = Math.Round(item.Balance * item.Apr / 100m / 12m, 2);
+        var goalPayment = BudgetService.CalcPaymentForMonths(item.Balance, item.Apr, item.GoalMonths);
+        var goalPayoff = BudgetService.CalcPayoff(item.Balance, item.Apr, goalPayment);
         var now = DateTime.Today;
 
         var panel = new StackPanel();
@@ -55,14 +70,17 @@ public partial class RepaymentView : UserControl
         var head = new Grid { Margin = new Thickness(0, 0, 0, 14) };
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        head.Children.Add(new TextBlock { Text = debt.Name, Style = St("H2") });
-        var edit = Btn("✎ Edit", "BtnGhost", (_, _) => EditDebt(debt)); Grid.SetColumn(edit, 1); head.Children.Add(edit);
+        var title = new WrapPanel();
+        title.Children.Add(new TextBlock { Text = item.Name, Style = St("H2"), VerticalAlignment = VerticalAlignment.Center });
+        if (item.IsCard) title.Children.Add(AccentBadge("Credit card"));
+        head.Children.Add(title);
+        var edit = Btn("✎ Edit", "BtnGhost", (_, _) => item.Edit()); Grid.SetColumn(edit, 1); head.Children.Add(edit);
         panel.Children.Add(head);
 
         // facts
         var facts = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
-        facts.Children.Add(Fact("Balance", Fmt.Money(debt.Balance)));
-        facts.Children.Add(Fact("Interest rate", debt.AprPercent.ToString("0.##") + "%"));
+        facts.Children.Add(Fact("Balance", Fmt.Money(item.Balance)));
+        facts.Children.Add(Fact("Interest rate", item.Apr.ToString("0.##") + "%"));
         facts.Children.Add(Fact("Interest-only pmt", Fmt.Money(interestOnly)));
         panel.Children.Add(facts);
 
@@ -70,14 +88,15 @@ public partial class RepaymentView : UserControl
         var cur = new StackPanel();
         var curTitle = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
         curTitle.Children.Add(new TextBlock { Text = "At your payment of ", Foreground = Res("TextDim"), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-        var payEdit = new TextBox { Text = debt.MonthlyPayment.ToString("0.00"), Style = St("InputNum"), MinWidth = 90, Width = 95, VerticalAlignment = VerticalAlignment.Center };
-        payEdit.LostFocus += (_, _) => { debt.MonthlyPayment = ParseMoney(payEdit.Text); Save(); };
-        payEdit.KeyDown += (_, e) => { if (e.Key == Key.Enter) { debt.MonthlyPayment = ParseMoney(payEdit.Text); Save(); } };
+        var payEdit = new TextBox { Text = item.Payment.ToString("0.00"), Style = St("InputNum"), MinWidth = 90, Width = 95, VerticalAlignment = VerticalAlignment.Center };
+        void CommitPay() { item.SetPayment(ParseMoney(payEdit.Text)); Save(); }
+        payEdit.LostFocus += (_, _) => CommitPay();
+        payEdit.KeyDown += (_, e) => { if (e.Key == Key.Enter) CommitPay(); };
         curTitle.Children.Add(payEdit);
         curTitle.Children.Add(new TextBlock { Text = " /mo", Foreground = Res("TextDim"), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         cur.Children.Add(curTitle);
 
-        if (debt.Balance <= 0)
+        if (item.Balance <= 0)
             cur.Children.Add(new TextBlock { Text = "Paid off 🎉", Foreground = Res("TextDim") });
         else if (payoff.NeverPaysOff)
             cur.Children.Add(new TextBlock { Text = $"⚠ That payment doesn't beat the interest ({Fmt.Money(interestOnly)}/mo) — the balance would never go down.", Foreground = Res("Bad"), TextWrapping = TextWrapping.Wrap, FontSize = 13 });
@@ -92,14 +111,15 @@ public partial class RepaymentView : UserControl
         var goal = new StackPanel();
         var goalTitle = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
         goalTitle.Children.Add(new TextBlock { Text = "Goal: paid off in ", Foreground = Res("TextDim"), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-        var goalEdit = new TextBox { Text = debt.GoalMonths.ToString(), Style = St("InputNum"), MinWidth = 55, Width = 58, VerticalAlignment = VerticalAlignment.Center };
-        goalEdit.LostFocus += (_, _) => { if (int.TryParse(goalEdit.Text, out var m)) debt.GoalMonths = Math.Clamp(m, 1, 600); Save(); };
-        goalEdit.KeyDown += (_, e) => { if (e.Key == Key.Enter) { if (int.TryParse(goalEdit.Text, out var m)) debt.GoalMonths = Math.Clamp(m, 1, 600); Save(); } };
+        var goalEdit = new TextBox { Text = item.GoalMonths.ToString(), Style = St("InputNum"), MinWidth = 55, Width = 58, VerticalAlignment = VerticalAlignment.Center };
+        void CommitGoal() { if (int.TryParse(goalEdit.Text, out var m)) item.SetGoal(Math.Clamp(m, 1, 600)); Save(); }
+        goalEdit.LostFocus += (_, _) => CommitGoal();
+        goalEdit.KeyDown += (_, e) => { if (e.Key == Key.Enter) CommitGoal(); };
         goalTitle.Children.Add(goalEdit);
-        goalTitle.Children.Add(new TextBlock { Text = $" months ({now.AddMonths(debt.GoalMonths):MMMM yyyy})", Foreground = Res("TextDim"), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        goalTitle.Children.Add(new TextBlock { Text = $" months ({now.AddMonths(item.GoalMonths):MMMM yyyy})", Foreground = Res("TextDim"), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         goal.Children.Add(goalTitle);
 
-        if (debt.Balance > 0)
+        if (item.Balance > 0)
         {
             goal.Children.Add(KvRow("Monthly payment needed", Fmt.Money(goalPayment), Res("Accent"), true));
             goal.Children.Add(KvRow("Total interest at goal", Fmt.Money(goalPayoff.TotalInterest), Res("Bad")));
@@ -108,8 +128,8 @@ public partial class RepaymentView : UserControl
         }
         panel.Children.Add(Block(goal, accent: true));
 
-        if (!string.IsNullOrWhiteSpace(debt.Notes))
-            panel.Children.Add(new TextBlock { Text = debt.Notes, Style = St("Faint"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) });
+        if (!string.IsNullOrWhiteSpace(item.Notes))
+            panel.Children.Add(new TextBlock { Text = item.Notes, Style = St("Faint"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) });
 
         var card = Card(panel);
         card.Width = 420;

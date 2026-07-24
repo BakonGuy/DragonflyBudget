@@ -176,62 +176,87 @@ public partial class DashboardView : UserControl
         return Card(panel, margin: new Thickness(0, 0, 0, 18));
     }
 
-    // ── Banks editor ──
+    // ── Accounts editor (banks, cash, credit cards) ──
     private Border BuildBanks(MonthSummary s)
     {
+        var win = Window.GetWindow(this)!;
         var panel = new StackPanel();
-        panel.Children.Add(SectionHead("🏦 Banks & cash", Btn("+ Account", "BtnSm", (_, _) =>
-        {
-            S.Budget.Data.Banks.Add(new BankAccount { Name = "", SortOrder = S.Budget.Data.Banks.Count });
-            Save();
-        })));
+        panel.Children.Add(SectionHead("🏦 Accounts", Btn("+ Account", "BtnSm",
+            (_, _) => AccountDialog.Show(win, B, null, Save))));
 
         var grid = new StackPanel();
-        foreach (var bank in B.Data.Banks.Where(b => !b.Archived).OrderBy(b => b.SortOrder))
-        {
-            var bk = bank;
-            var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var name = MakeEdit(bk.Name, "Account name", left: true, commit: t => { bk.Name = t; Save(); });
-            Place(row, name, 0, 0);
-
-            var bal = MakeEdit(bk.Balance.ToString("0.00"), null, left: false, commit: t => { bk.Balance = ParseMoney(t); Save(); });
-            bal.Margin = new Thickness(8, 0, 0, 0);
-            Place(row, bal, 0, 1);
-
-            var del = Btn("✕", "BtnGhost", (_, _) => { bk.Archived = true; Save(); });
-            del.Foreground = Res("Bad");
-            del.Margin = new Thickness(4, 0, 0, 0);
-            Place(row, del, 0, 2);
-
-            grid.Children.Add(row);
-        }
+        // bank accounts (quick inline balance edit; ✎ for full edit)
+        foreach (var bank in B.BankAccounts())
+            grid.Children.Add(AccountRow(win, bank, isCard: false));
 
         // cash
-        var cashRow = new Grid { Margin = new Thickness(0, 8, 0, 4) };
+        var cashRow = new Grid { Margin = new Thickness(0, 6, 0, 4) };
         cashRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         cashRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
-        cashRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+        cashRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
         cashRow.Children.Add(new TextBlock { Text = "Cash on hand", Foreground = Res("TextDim"), VerticalAlignment = VerticalAlignment.Center });
         var cash = MakeEdit(B.Data.CashOnHand.ToString("0.00"), null, left: false, commit: t => { B.Data.CashOnHand = ParseMoney(t); Save(); });
         cash.Margin = new Thickness(8, 0, 0, 0);
         Place(cashRow, cash, 0, 1);
         grid.Children.Add(cashRow);
 
-        // total
-        var totalRow = new Grid { Margin = new Thickness(0, 10, 0, 0) };
-        totalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        totalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        totalRow.Children.Add(new TextBlock { Text = "Total", FontWeight = FontWeights.Bold });
-        var tot = new TextBlock { Text = Fmt.Money(s.TotalFunds), FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 28, 0) };
-        Place(totalRow, tot, 0, 1);
-        grid.Children.Add(new Border { BorderBrush = Res("BorderSoft"), BorderThickness = new Thickness(0, 1, 0, 0), Child = totalRow, Margin = new Thickness(0, 6, 0, 0), Padding = new Thickness(0, 6, 0, 0) });
+        // available-funds total
+        grid.Children.Add(TotalLine("Available funds", Fmt.Money(s.TotalFunds), Res("Text")));
+
+        // credit cards
+        var cards = B.CreditCards().ToList();
+        if (cards.Count > 0)
+        {
+            grid.Children.Add(new TextBlock { Text = "CREDIT CARDS", Foreground = Res("TextFaint"), FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 6) });
+            foreach (var card in cards)
+                grid.Children.Add(AccountRow(win, card, isCard: true));
+            grid.Children.Add(TotalLine("Total owed on cards", Fmt.Money(s.CreditTotal), s.CreditTotal > 0 ? Res("Bad") : Res("Text")));
+        }
 
         panel.Children.Add(grid);
         return Card(panel, margin: new Thickness(0, 0, 0, 18));
+    }
+
+    private Grid AccountRow(Window win, BankAccount acc, bool isCard)
+    {
+        var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var nameCol = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        nameCol.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(acc.Name) ? "(unnamed)" : acc.Name, Foreground = Res("Text"), VerticalAlignment = VerticalAlignment.Center });
+        if (isCard && acc.CreditLimit > 0)
+            nameCol.Children.Add(new TextBlock { Text = $"limit {Fmt.Money(acc.CreditLimit)}", Foreground = Res("TextFaint"), FontSize = 11.5 });
+        Place(row, nameCol, 0, 0);
+
+        // Show the effective balance (baseline minus linked bills paid since). Editing sets a new
+        // baseline as of today and records a manual balance-history point.
+        var bal = MakeEdit(B.EffectiveBalance(acc).ToString("0.00"), null, left: false, commit: t => { B.SetBalance(acc, ParseMoney(t), BalanceSource.Manual); Save(); });
+        bal.Margin = new Thickness(8, 0, 0, 0);
+        Place(row, bal, 0, 1);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal };
+        var chart = Btn("📈", "BtnGhost", (_, _) => new BalanceHistoryWindow(win, B, acc).ShowDialog());
+        var edit = Btn("✎", "BtnGhost", (_, _) => AccountDialog.Show(win, B, acc, Save));
+        edit.Margin = new Thickness(2, 0, 0, 0);
+        actions.Children.Add(chart);
+        actions.Children.Add(edit);
+        Place(row, actions, 0, 2);
+
+        return row;
+    }
+
+    private Border TotalLine(string label, string value, Brush valueBrush)
+    {
+        var totalRow = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+        totalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        totalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        totalRow.Children.Add(new TextBlock { Text = label, FontWeight = FontWeights.Bold });
+        var tot = new TextBlock { Text = value, FontWeight = FontWeights.Bold, Foreground = valueBrush, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 30, 0) };
+        Place(totalRow, tot, 0, 1);
+        return new Border { BorderBrush = Res("BorderSoft"), BorderThickness = new Thickness(0, 1, 0, 0), Child = totalRow, Margin = new Thickness(0, 6, 0, 0), Padding = new Thickness(0, 6, 0, 0) };
     }
 
     private Border BuildBreakdown(MonthSummary s)

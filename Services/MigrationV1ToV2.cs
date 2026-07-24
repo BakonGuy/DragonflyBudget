@@ -25,12 +25,15 @@ public static class MigrationV1ToV2
         foreach (var p in data.Pending)
             p.Repeat ??= Schedule.From(p.Recurrence);
 
-        // Give existing accounts an explicit kind and a stable sort order.
+        // Give existing accounts an explicit kind, a stable sort order, and a balance baseline date
+        // of today so pre-existing paid bills don't retroactively deduct from the shown balance.
+        var today = DateOnly.FromDateTime(DateTime.Today);
         int order = 0;
         foreach (var acc in data.Banks)
         {
             if (acc.Type == default) acc.Type = AccountType.Bank;
             if (acc.SortOrder == 0) acc.SortOrder = order;
+            if (acc.LastUserBalanceDate == default) acc.LastUserBalanceDate = today;
             order++;
         }
 

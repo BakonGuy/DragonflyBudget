@@ -230,6 +230,9 @@ public partial class BillsView : UserControl
             target.AutoPay = autopay.SelectedIndex == 1;
             target.PaymentMethod = (method.Text ?? "").Trim();
             target.AccountName = (account.Text ?? "").Trim();
+            // Link to a real account by name (enables balance auto-deduction + history).
+            target.AccountId = B.Data.Banks
+                .FirstOrDefault(x => !x.Archived && string.Equals(x.Name, target.AccountName, StringComparison.OrdinalIgnoreCase))?.Id;
             target.Notes = notes.Text.Trim();
             if (isNew) { target.SortOrder = B.Data.Bills.Count; B.Data.Bills.Add(target); }
             Save();
