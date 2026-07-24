@@ -156,6 +156,15 @@ public class BudgetService(DataStore store)
             .OrderBy(r => r.Item.ExpectedDate ?? DateOnly.MaxValue)
             .ToList();
 
+    // ---- suggestions (existing values for editable dropdowns) ----
+    public IEnumerable<string> PaymentMethods() =>
+        Data.Bills.Select(b => b.PaymentMethod).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct();
+
+    public IEnumerable<string> AccountNames() =>
+        Data.Banks.Where(a => !a.Archived).Select(a => a.Name)
+            .Concat(Data.Bills.Select(b => b.AccountName))
+            .Where(s => !string.IsNullOrWhiteSpace(s)).Distinct();
+
     // ---- balance history ----
     /// <summary>
     /// Record an account's balance for a day. Keeps at most one entry per account per day: the

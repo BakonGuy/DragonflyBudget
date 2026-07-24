@@ -115,6 +115,7 @@
         <Setter Property="Background" Value="{StaticResource Bg}"/>
         <Setter Property="Foreground" Value="{StaticResource Text}"/>
         <Setter Property="CaretBrush" Value="{StaticResource Text}"/>
+        <Setter Property="SelectionBrush" Value="{StaticResource Accent}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="8,7"/>
@@ -140,6 +141,54 @@
         <Setter Property="TextAlignment" Value="Right"/>
         <Setter Property="HorizontalAlignment" Value="Right"/>
         <Setter Property="MinWidth" Value="110"/>
+    </Style>
+
+    <!-- ── Chromeless toggle (dropdown arrows inside boxes) ──── -->
+    <Style x:Key="IconToggle" TargetType="ToggleButton">
+        <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="b" Background="Transparent" CornerRadius="3" Padding="0">
+                        <Path x:Name="arrow" VerticalAlignment="Center" HorizontalAlignment="Center"
+                              Data="M0,0 L4,4 L8,0 Z" Fill="{StaticResource TextDim}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="arrow" Property="Fill" Value="{StaticResource Text}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="arrow" Property="Fill" Value="{StaticResource Accent}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Chromeless icon button (compact arrows etc.) -->
+    <Style x:Key="IconBtn" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="4">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource Panel2}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- ComboBox item: readable on the dark popup, accent highlight -->
@@ -243,10 +292,72 @@
         </Setter>
     </Style>
 
+    <!-- Editable ComboBox: pick from the list or type a new value -->
+    <Style x:Key="ComboEditable" TargetType="ComboBox">
+        <Setter Property="Background" Value="{StaticResource Bg}"/>
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="8,6"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="Height" Value="36"/>
+        <Setter Property="IsEditable" Value="True"/>
+        <Setter Property="IsTextSearchEnabled" Value="True"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource ComboItem}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid>
+                        <Border x:Name="b" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="PART_EditableTextBox" Grid.Column="0"
+                                         Background="Transparent" BorderThickness="0"
+                                         Foreground="{StaticResource Text}" CaretBrush="{StaticResource Text}"
+                                         SelectionBrush="{StaticResource Accent}"
+                                         Margin="{TemplateBinding Padding}" VerticalContentAlignment="Center"
+                                         IsReadOnly="{TemplateBinding IsReadOnly}"/>
+                                <ToggleButton x:Name="tgl" Grid.Column="1" Style="{StaticResource IconToggle}"
+                                              ClickMode="Press" Width="28"
+                                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"/>
+                            </Grid>
+                        </Border>
+                        <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True"
+                               IsOpen="{TemplateBinding IsDropDownOpen}" Focusable="False"
+                               PopupAnimation="Slide" MinWidth="{TemplateBinding ActualWidth}">
+                            <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1" CornerRadius="4" Margin="0,4,0,0"
+                                    MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="#000000" BlurRadius="14" ShadowDepth="3" Opacity="0.5"/>
+                                </Border.Effect>
+                                <ScrollViewer><ItemsPresenter/></ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource AccentStrong}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ── DatePicker + Calendar ───────────────────────────── -->
     <Style x:Key="DatePickerTextBoxStyle" TargetType="DatePickerTextBox">
         <Setter Property="Foreground" Value="{StaticResource Text}"/>
         <Setter Property="CaretBrush" Value="{StaticResource Text}"/>
+        <Setter Property="SelectionBrush" Value="{StaticResource Accent}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="DatePickerTextBox">

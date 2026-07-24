@@ -102,24 +102,28 @@ public partial class PendingView : UserControl
         var dlg = new EditDialog(isNew ? "Add pending item" : "Edit pending item", win);
 
         var name = EditDialog.Text(p?.Name ?? "", "e.g. Bonus check, Speeding ticket");
-        var amount = EditDialog.Text((p?.Amount ?? 0).ToString("0.00"));
-        var recur = EditDialog.Combo(new[] { "One-off", "Repeats monthly" },
-            (p?.Recurrence ?? Recurrence.OneOff) == Recurrence.Monthly ? "Repeats monthly" : "One-off");
+        var amount = new MoneyTextBox(p?.Amount ?? 0, allowNegative: true);
+        var recur = new RecurrenceEditor(p?.Repeat ?? (p != null ? Schedule.From(p.Recurrence) : Schedule.OneOff), "One-off");
         var date = new DatePicker { SelectedDate = p?.ExpectedDate?.ToDateTime(TimeOnly.MinValue), Height = 36, FontSize = 14 };
         var timeframe = EditDialog.Text(p?.Timeframe ?? "", "e.g. next two weeks");
         var start = new MonthPicker(); start.Set(p?.StartMonth ?? S.Month);
         var end = new MonthPicker(allowEmpty: true); end.Set(p?.EndMonth);
         var notes = EditDialog.Notes(p?.Notes ?? "");
 
+        dlg.AddSection("Item");
         dlg.Add("What is it?", name);
         dlg.Add("Amount (negative = money out)", amount, full: false);
-        dlg.Add("Type", recur, full: false, rightColumn: true);
+        dlg.Add("Repeats", recur, full: false, rightColumn: true);
+
+        dlg.AddSection("When");
         dlg.Add("Expected date (optional)", date, full: false);
         dlg.Add("Or rough timeframe", timeframe, full: false, rightColumn: true);
         dlg.Add("Recurring starts", start, full: false);
         dlg.Add("Recurring ends (blank = indefinite)", end, full: false, rightColumn: true);
-        dlg.Add("Notes", notes);
-        dlg.AddHint("Use amount like 1200 for an expected deposit, or -200 for a payment you'll owe.");
+
+        dlg.AddSection("Notes");
+        dlg.Add("Anything to remember", notes);
+        dlg.AddHint("Use an amount like 1200 for an expected deposit, or -200 for a payment you'll owe.");
 
         dlg.OnValidate(() =>
         {
@@ -138,15 +142,17 @@ public partial class PendingView : UserControl
         if (dlg.ShowDialog() == true)
         {
             var t = isNew ? new PendingItem() : B.Data.Pending.First(x => x.Id == p!.Id);
+            var sched = recur.Value;
             t.Name = name.Text.Trim();
-            t.Amount = ParseMoney(amount.Text);
-            t.Recurrence = recur.SelectedIndex == 1 ? Recurrence.Monthly : Recurrence.OneOff;
+            t.Amount = amount.Value;
+            t.Repeat = sched;
+            t.Recurrence = sched.IsOneOff ? Recurrence.OneOff : Recurrence.Monthly;
             t.ExpectedDate = date.SelectedDate.HasValue ? DateOnly.FromDateTime(date.SelectedDate.Value) : null;
             t.Timeframe = timeframe.Text.Trim();
             t.StartMonth = start.Value ?? S.Month;
-            t.EndMonth = t.Recurrence == Recurrence.Monthly ? end.Value : null;
+            t.EndMonth = sched.IsOneOff ? null : end.Value;
             t.Notes = notes.Text.Trim();
-            if (isNew) B.Data.Pending.Add(t);
+            if (isNew) { t.SortOrder = B.Data.Pending.Count; B.Data.Pending.Add(t); }
             Save();
         }
     }

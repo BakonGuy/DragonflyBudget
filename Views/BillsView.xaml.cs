@@ -120,11 +120,11 @@ public partial class BillsView : UserControl
             else if (r.AutoPaid)
             {
                 // Autopay assumed it paid — let the user flag the rare failure.
-                acts.Children.Add(Space(Btn("Mark unpaid", "BtnGhost", (_, _) => { r.Status.Status = PayStatus.Unpaid; r.Status.AmountPaid = 0; r.Status.UserSet = true; Save(); })));
+                acts.Children.Add(Space(Btn("Mark unpaid", "BtnGhost", (_, _) => { r.Status.Status = PayStatus.Unpaid; r.Status.AmountPaid = 0; r.Status.PaidDate = null; r.Status.UserSet = true; Save(); })));
             }
             else
             {
-                acts.Children.Add(Space(Btn("Undo", "BtnGhost", (_, _) => { r.Status.Status = PayStatus.Unpaid; r.Status.AmountPaid = 0; r.Status.UserSet = true; Save(); })));
+                acts.Children.Add(Space(Btn("Undo", "BtnGhost", (_, _) => { r.Status.Status = PayStatus.Unpaid; r.Status.AmountPaid = 0; r.Status.PaidDate = null; r.Status.UserSet = true; Save(); })));
             }
             acts.Children.Add(Space(Btn("✎", "BtnGhost", (_, _) => EditBill(r.Bill))));
             Place(table, acts, row, 5);
@@ -137,21 +137,29 @@ public partial class BillsView : UserControl
     private void PartialDialog(BillRow r)
     {
         var win = Window.GetWindow(this)!;
-        var dlg = new EditDialog($"Partial payment — {r.Bill.Name}", win);
-        var paid = EditDialog.Text(r.Status.AmountPaid.ToString("0.00"));
-        var over = EditDialog.Text(r.Amount.ToString("0.00"));
-        dlg.Add($"Amount paid so far (of {Fmt.Money(r.Amount)})", paid);
-        dlg.Add("This month's amount (override)", over);
-        dlg.AddHint("Overriding only changes this one month — e.g. a higher electric bill.");
+        var dlg = new EditDialog($"Record payment — {r.Bill.Name}", win);
+        var paid = new MoneyTextBox(r.Status.AmountPaid);
+        var over = new MoneyTextBox(r.Amount);
+        var paidOn = new DatePicker
+        {
+            SelectedDate = (r.Status.PaidDate ?? r.DueDate).ToDateTime(TimeOnly.MinValue),
+            Height = 36, FontSize = 14,
+        };
+        dlg.Add($"Amount paid so far (of {Fmt.Money(r.Amount)})", paid, full: false);
+        dlg.Add("This month's amount (override)", over, full: false, rightColumn: true);
+        dlg.Add("Paid on", paidOn, full: false);
+        dlg.AddHint("Overriding the amount only changes this one month. The paid date defaults to the due date.");
         dlg.OnValidate(() => true);
         if (dlg.ShowDialog() == true)
         {
             var st = r.Status;
-            decimal ov = ParseMoney(over.Text);
+            decimal ov = over.Value;
             st.AmountOverride = ov == r.Bill.Amount ? null : ov;
             decimal amount = st.AmountOverride ?? r.Bill.Amount;
-            st.AmountPaid = ParseMoney(paid.Text);
+            st.AmountPaid = paid.Value;
             st.Status = st.AmountPaid <= 0 ? PayStatus.Unpaid : st.AmountPaid >= amount ? PayStatus.Paid : PayStatus.Partial;
+            var pd = paidOn.SelectedDate.HasValue ? DateOnly.FromDateTime(paidOn.SelectedDate.Value) : (DateOnly?)null;
+            st.PaidDate = pd == r.DueDate ? null : pd;   // null = use the due date
             st.UserSet = true;
             Save();
         }
@@ -166,27 +174,33 @@ public partial class BillsView : UserControl
         var dlg = new EditDialog(isNew ? "Add bill" : "Edit bill", win);
 
         var name = EditDialog.Text(b?.Name ?? "", "e.g. Electric");
-        var amount = EditDialog.Text((b?.Amount ?? 0).ToString("0.00"));
-        var dueDay = EditDialog.Text((b?.DueDay ?? 1).ToString());
-        var recur = EditDialog.Combo(new[] { "Repeats monthly", "One-off (this month only)" },
-            (b?.Recurrence ?? Recurrence.Monthly) == Recurrence.OneOff ? "One-off (this month only)" : "Repeats monthly");
+        var amount = new MoneyTextBox(b?.Amount ?? 0);
+        var dueDay = new DayPicker(b?.DueDay ?? 1);
+        var recur = new RecurrenceEditor(b?.Repeat ?? (b != null ? Schedule.From(b.Recurrence) : Schedule.Monthly), "One-off (this month only)");
         var start = new MonthPicker(); start.Set(b?.StartMonth ?? S.Month);
         var end = new MonthPicker(allowEmpty: true); end.Set(b?.EndMonth);
         var autopay = EditDialog.Combo(new[] { "Manual", "Autopay" }, (b?.AutoPay ?? false) ? "Autopay" : "Manual");
-        var method = EditDialog.Text(b?.PaymentMethod ?? "", "e.g. PayPal, Direct");
-        var account = EditDialog.Text(b?.AccountName ?? "", "e.g. Capital One");
+        var method = EditDialog.EditableCombo(B.PaymentMethods(), b?.PaymentMethod ?? "");
+        var account = EditDialog.EditableCombo(B.AccountNames(), b?.AccountName ?? "");
         var notes = EditDialog.Notes(b?.Notes ?? "");
 
+        dlg.AddSection("Bill");
         dlg.Add("Name", name);
         dlg.Add("Amount", amount, full: false);
-        dlg.Add("Due day of month (1–31)", dueDay, full: false, rightColumn: true);
-        dlg.Add("Type", recur, full: false);
-        dlg.Add("Starts", start, full: false, rightColumn: true);
-        dlg.Add("Ends (leave blank = indefinite)", end, full: false);
-        dlg.Add("Autopay?", autopay, full: false, rightColumn: true);
-        dlg.Add("Payment method", method, full: false);
-        dlg.Add("From account", account, full: false, rightColumn: true);
-        dlg.Add("Notes", notes);
+        dlg.Add("Due day of month", dueDay, full: false, rightColumn: true);
+
+        dlg.AddSection("Schedule");
+        dlg.Add("Repeats", recur);
+        dlg.Add("Starts", start, full: false);
+        dlg.Add("Ends (blank = indefinite)", end, full: false, rightColumn: true);
+
+        dlg.AddSection("Payment");
+        dlg.Add("Autopay?", autopay, full: false);
+        dlg.Add("Payment method", method, full: false, rightColumn: true);
+        dlg.Add("From account", account);
+
+        dlg.AddSection("Notes");
+        dlg.Add("Anything to remember", notes);
 
         dlg.OnValidate(() =>
         {
@@ -205,17 +219,19 @@ public partial class BillsView : UserControl
         if (dlg.ShowDialog() == true)
         {
             var target = isNew ? new Bill() : B.Data.Bills.First(x => x.Id == b!.Id);
+            var sched = recur.Value;
             target.Name = name.Text.Trim();
-            target.Amount = ParseMoney(amount.Text);
-            target.DueDay = int.TryParse(dueDay.Text, out var dd) ? Math.Clamp(dd, 1, 31) : 1;
-            target.Recurrence = recur.SelectedIndex == 1 ? Recurrence.OneOff : Recurrence.Monthly;
+            target.Amount = amount.Value;
+            target.DueDay = dueDay.Day;
+            target.Repeat = sched;
+            target.Recurrence = sched.IsOneOff ? Recurrence.OneOff : Recurrence.Monthly;
             target.StartMonth = start.Value ?? S.Month;
-            target.EndMonth = target.Recurrence == Recurrence.OneOff ? null : end.Value;
+            target.EndMonth = sched.IsOneOff ? null : end.Value;
             target.AutoPay = autopay.SelectedIndex == 1;
-            target.PaymentMethod = method.Text.Trim();
-            target.AccountName = account.Text.Trim();
+            target.PaymentMethod = (method.Text ?? "").Trim();
+            target.AccountName = (account.Text ?? "").Trim();
             target.Notes = notes.Text.Trim();
-            if (isNew) B.Data.Bills.Add(target);
+            if (isNew) { target.SortOrder = B.Data.Bills.Count; B.Data.Bills.Add(target); }
             Save();
         }
     }

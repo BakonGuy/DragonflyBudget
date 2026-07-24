@@ -57,7 +57,10 @@ public class EditDialog : Window
         Content = root;
 
         SourceInitialized += (_, _) => NativeTheme.ApplyDark(this);
+        Loaded += (_, _) => _firstControl?.Focus();
     }
+
+    private FrameworkElement? _firstControl;
 
     public void OnValidate(Func<bool> validate) => _validate = validate;
 
@@ -86,6 +89,7 @@ public class EditDialog : Window
         stack.Children.Add(new TextBlock { Text = label, Style = St("FieldLabel") });
         control.HorizontalAlignment = HorizontalAlignment.Stretch;
         stack.Children.Add(control);
+        _firstControl ??= control;
 
         if (full)
         {
@@ -115,6 +119,24 @@ public class EditDialog : Window
         _row++;
     }
 
+    /// <summary>A small section divider/header to group related fields.</summary>
+    public void AddSection(string title)
+    {
+        var tb = new TextBlock
+        {
+            Text = title.ToUpper(),
+            Foreground = Res("Accent"),
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, _row == 0 ? 0 : 8, 0, 10),
+        };
+        Grid.SetColumnSpan(tb, 3);
+        Grid.SetRow(tb, _row);
+        _fields.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _fields.Children.Add(tb);
+        _row++;
+    }
+
     // ── field factories ──
     public static TextBox Text(string value, string placeholder = "")
     {
@@ -134,6 +156,16 @@ public class EditDialog : Window
         foreach (var i in items) c.Items.Add(i);
         c.SelectedItem = selected;
         if (c.SelectedItem == null && c.Items.Count > 0) c.SelectedIndex = 0;
+        return c;
+    }
+
+    /// <summary>Editable combo: pick a suggestion or type a new value. Text holds the result.</summary>
+    public static ComboBox EditableCombo(IEnumerable<string> suggestions, string current)
+    {
+        var c = new ComboBox { Style = St("ComboEditable") };
+        foreach (var s in suggestions.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().OrderBy(x => x))
+            c.Items.Add(s);
+        c.Text = current;
         return c;
     }
 }

@@ -4,12 +4,12 @@
     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
         <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource BorderSoft}" BorderThickness="1" CornerRadius="4" Padding="3">
             <StackPanel Orientation="Horizontal">
-                <Button x:Name="PrevBtn" Content="‹" Width="32" Height="30" FontSize="18" Cursor="Hand"
-                        Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextDim}" Click="Prev_Click"/>
+                <Button x:Name="PrevBtn" Content="‹" Width="32" Height="30" FontSize="18"
+                        Style="{StaticResource IconBtn}" Click="Prev_Click"/>
                 <TextBlock x:Name="MonthLabel" MinWidth="150" TextAlignment="Center" VerticalAlignment="Center"
                            FontWeight="SemiBold" Foreground="{StaticResource Text}"/>
-                <Button x:Name="NextBtn" Content="›" Width="32" Height="30" FontSize="18" Cursor="Hand"
-                        Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextDim}" Click="Next_Click"/>
+                <Button x:Name="NextBtn" Content="›" Width="32" Height="30" FontSize="18"
+                        Style="{StaticResource IconBtn}" Click="Next_Click"/>
             </StackPanel>
         </Border>
         <Button x:Name="TodayBtn" Style="{StaticResource BtnSm}" Content="Back to today" Margin="8,0,0,0" Click="Today_Click"/>
