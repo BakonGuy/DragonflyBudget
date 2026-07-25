@@ -12,6 +12,9 @@
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <Product>Dragonfly</Product>
     <Company>Overtorque Creations</Company>
+    <!-- LiveCharts' SkiaSharp/OpenTK dependencies only publish .NET Framework TFMs but run fine on
+         net9.0-windows; NU1701 is a false positive for them. -->
+    <NoWarn>$(NoWarn);NU1701</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +23,7 @@
 
   <ItemGroup>
     <PackageReference Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.1.0-dev-798" />
+    <PackageReference Include="MahApps.Metro.IconPacks.RemixIcon" Version="6.2.1" />
   </ItemGroup>
 
 </Project>

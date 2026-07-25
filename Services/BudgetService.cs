@@ -18,7 +18,9 @@ public record MonthSummary(
     decimal BankTotal, decimal Cash, decimal TotalFunds, decimal CreditTotal,
     decimal TotalMonthlyBills, decimal TotalUnpaid, decimal DueSoon, decimal AfterDueSoonPaid,
     decimal PendingIn, decimal PendingOut, decimal AmountBehind, decimal EndOfMonthProjection,
-    int UnpaidCount, int DueSoonCount);
+    int UnpaidCount, int DueSoonCount,
+    // Unpaid bills split by what they draw from: bank/cash lowers funds, a card raises what's owed.
+    decimal UnpaidFromBank, decimal UnpaidFromCard, decimal ProjectedCardOwed);
 
 public class BudgetService(DataStore store)
 {
@@ -156,14 +158,76 @@ public class BudgetService(DataStore store)
             .OrderBy(r => r.Item.ExpectedDate ?? DateOnly.MaxValue)
             .ToList();
 
-    // ---- suggestions (existing values for editable dropdowns) ----
-    public IEnumerable<string> PaymentMethods() =>
-        Data.Bills.Select(b => b.PaymentMethod).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct();
+    // ---- sorting ----
+    /// <summary>The saved sort preference for a screen, created (with a sensible default) if absent.</summary>
+    public SortPref GetSort(string screen, string defaultKey = "manual")
+    {
+        if (Data.Settings.Sorts.TryGetValue(screen, out var p)) return p;
+        p = new SortPref { Key = defaultKey };
+        Data.Settings.Sorts[screen] = p;
+        return p;
+    }
 
-    public IEnumerable<string> AccountNames() =>
-        Data.Banks.Where(a => !a.Archived).Select(a => a.Name)
-            .Concat(Data.Bills.Select(b => b.AccountName))
-            .Where(s => !string.IsNullOrWhiteSpace(s)).Distinct();
+    static int BillStatusRank(PayStatus s) => s switch
+    {
+        PayStatus.Unpaid => 0, PayStatus.Partial => 1, PayStatus.Paid => 2, _ => 3,
+    };
+
+    /// <summary>Apply a sort preference to bill rows. Ties fall back to due date then name.</summary>
+    public static List<BillRow> SortBills(IEnumerable<BillRow> rows, SortPref p)
+    {
+        Func<BillRow, IComparable> key = p.Key switch
+        {
+            "amount" => r => r.Amount,
+            "status" => r => BillStatusRank(r.Effective),
+            "name" => r => r.Bill.Name.ToLowerInvariant(),
+            "manual" => r => r.Bill.SortOrder,
+            _ => r => r.DueDate,   // "date"
+        };
+        var list = rows.OrderBy(key).ThenBy(r => r.DueDate).ThenBy(r => r.Bill.Name).ToList();
+        if (p.Descending) list.Reverse();
+        return list;
+    }
+
+    /// <summary>Apply a sort preference to pending rows.</summary>
+    public static List<PendingRow> SortPending(IEnumerable<PendingRow> rows, SortPref p)
+    {
+        Func<PendingRow, IComparable> key = p.Key switch
+        {
+            "amount" => r => r.Item.Amount,
+            "status" => r => r.Status.Cleared ? 1 : 0,
+            "name" => r => r.Item.Name.ToLowerInvariant(),
+            "manual" => r => r.Item.SortOrder,
+            _ => r => r.Item.ExpectedDate ?? DateOnly.MaxValue,   // "date"
+        };
+        var list = rows.OrderBy(key).ThenBy(r => r.Item.ExpectedDate ?? DateOnly.MaxValue).ToList();
+        if (p.Descending) list.Reverse();
+        return list;
+    }
+
+    // ---- suggestions (values offered in the bill dialog's editable dropdowns) ----
+    /// <summary>A few prefilled "sub info" labels (the account sub-type / deposit kind).</summary>
+    static readonly string[] CommonSubInfo = { "Checking", "Savings", "Direct Deposit" };
+
+    /// <summary>
+    /// "Sub info" suggestions: the few prefilled labels first, then any other value already typed on
+    /// a bill. Ordered — leave as-is (don't alphabetize).
+    /// </summary>
+    public IEnumerable<string> PaymentMethods() =>
+        CommonSubInfo
+            .Concat(Data.Bills.Select(b => b.PaymentMethod))
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Names of the accounts you actually track (bank + cards), in display order.</summary>
+    public IEnumerable<string> TrackedAccountNames() =>
+        ActiveAccounts().Select(a => a.Name).Where(s => !string.IsNullOrWhiteSpace(s));
+
+    /// <summary>Custom "pay from" names already typed on a bill (excludes tracked accounts).</summary>
+    public IEnumerable<string> ExtraAccountNames() =>
+        Data.Bills.Select(b => b.AccountName)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
 
     // ---- accounts ----
     public IEnumerable<BankAccount> ActiveAccounts() => Data.Banks.Where(a => !a.Archived).OrderBy(a => a.SortOrder);
@@ -278,6 +342,9 @@ public class BudgetService(DataStore store)
     }
 
     // ---- budget categories ----
+    public IEnumerable<BudgetCategory> ActiveBudgets() =>
+        Data.BudgetCategories.Where(c => !c.Archived).OrderBy(c => c.SortOrder);
+
     public decimal BudgetSpent(Guid categoryId, string month) =>
         Data.BudgetSpend.FirstOrDefault(e => e.CategoryId == categoryId && e.Month == month)?.Spent ?? 0m;
 
@@ -310,15 +377,23 @@ public class BudgetService(DataStore store)
         decimal pendingIn = pending.Where(p => !p.Status.Cleared && p.Item.Amount > 0).Sum(p => p.Item.Amount);
         decimal pendingOut = pending.Where(p => !p.Status.Cleared && p.Item.Amount < 0).Sum(p => p.Item.Amount);
 
+        // A bill paid on a credit card doesn't touch the bank — it adds to what's owed on the card.
+        bool PaidOnCard(BillRow r) => FindAccount(r.Bill.AccountId)?.Type == AccountType.CreditCard;
+        decimal unpaidCard = bills.Where(b => b.Remaining > 0 && PaidOnCard(b)).Sum(b => b.Remaining);
+        decimal unpaidBank = totalUnpaid - unpaidCard;
+        decimal dueSoonBank = dueSoonRows.Where(b => !PaidOnCard(b)).Sum(b => b.Remaining);
+
         return new MonthSummary(
             BankTotal: bank, Cash: Data.CashOnHand, TotalFunds: funds, CreditTotal: credit,
             TotalMonthlyBills: totalMonthly, TotalUnpaid: totalUnpaid,
-            DueSoon: dueSoon, AfterDueSoonPaid: funds - dueSoon,
+            DueSoon: dueSoon, AfterDueSoonPaid: funds - dueSoonBank,
             PendingIn: pendingIn, PendingOut: pendingOut,
-            AmountBehind: funds - totalUnpaid,
-            EndOfMonthProjection: funds - totalUnpaid + pendingIn + pendingOut,
+            AmountBehind: funds - unpaidBank,
+            EndOfMonthProjection: funds - unpaidBank + pendingIn + pendingOut,
             UnpaidCount: bills.Count(b => b.Remaining > 0),
-            DueSoonCount: dueSoonRows.Count);
+            DueSoonCount: dueSoonRows.Count,
+            UnpaidFromBank: unpaidBank, UnpaidFromCard: unpaidCard,
+            ProjectedCardOwed: credit + unpaidCard);
     }
 
     // ---- repayment math ----

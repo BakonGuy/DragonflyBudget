@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Dragonfly.Models;
 using Dragonfly.Services;
+using MahApps.Metro.IconPacks;
 using static Dragonfly.Views.UiKit;
 
 namespace Dragonfly.Views;
@@ -43,7 +44,7 @@ public partial class DebtsView : UserControl
         else
         {
             var table = new Grid();
-            foreach (var w in new[] { new GridLength(1, GridUnitType.Star), new GridLength(110), new GridLength(120), new GridLength(110), new GridLength(130), GridLength.Auto })
+            foreach (var w in new[] { new GridLength(1, GridUnitType.Star), MoneyCol, MoneyCol, MoneyCol, new GridLength(130), GridLength.Auto })
                 table.ColumnDefinitions.Add(new ColumnDefinition { Width = w });
             AddHeader(table, "DEBT", 0);
             AddHeader(table, "OWED", 1, right: true);
@@ -86,7 +87,7 @@ public partial class DebtsView : UserControl
                 var acts = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 4, 6) };
                 if (debt.AmountLeft <= 0)
                     acts.Children.Add(Space(Btn("Done ✓", "BtnSm", (_, _) => { debt.Archived = true; Save(); })));
-                acts.Children.Add(Space(Btn("✎", "BtnGhost", (_, _) => EditDebt(debt))));
+                acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditDebt(debt), tooltip: "Edit")));
                 Place(table, acts, row, 5);
             }
             Body.Children.Add(Card(table));
@@ -102,7 +103,7 @@ public partial class DebtsView : UserControl
                 var debt = d;
                 var g = new Grid { Margin = new Thickness(0, 4, 0, 4) };
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 g.Children.Add(new TextBlock { Text = debt.Name, Foreground = Res("TextDim"), VerticalAlignment = VerticalAlignment.Center });
                 var owed = RightText(Fmt.Money(debt.TotalOwed)); Grid.SetColumn(owed, 1); g.Children.Add(owed);

@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Dragonfly.Views;
+using MahApps.Metro.IconPacks;
 
 namespace Dragonfly;
 
@@ -23,6 +24,7 @@ public partial class MainWindow : Window
         Icon = DragonflyIcon.MakeIcon();
         BrandIcon.Source = DragonflyIcon.BuildMediumImage(DragonflyIcon.Accent);
         VersionText.Text = $"v{AppVersion}";
+        SettingsBtn.Content = NavContent(PackIconRemixIconKind.SettingsFill, "Settings");
     }
 
     private void Settings_Click(object sender, RoutedEventArgs e)
@@ -93,28 +95,39 @@ public partial class MainWindow : Window
 
     private void BuildNav()
     {
-        AddNav("◈", "Dashboard", () => new DashboardView());
-        AddNav("🏦", "Accounts", () => new AccountsView());
-        AddNav("🗓", "Bills", () => new BillsView());
-        AddNav("⏳", "Pending", () => new PendingView());
-        AddNav("📋", "Debts to Pay", () => new DebtsView());
-        AddNav("﹪", "Repayment", () => new RepaymentView());
+        AddNav(PackIconRemixIconKind.DashboardFill, "Dashboard", () => new DashboardView());
+        AddNav(PackIconRemixIconKind.BankFill, "Accounts", () => new AccountsView());
+        AddNav(PackIconRemixIconKind.BillFill, "Bills", () => new BillsView());
+        AddNav(PackIconRemixIconKind.TimeFill, "Pending", () => new PendingView());
+        AddNav(PackIconRemixIconKind.ShoppingBasketFill, "Budgets", () => new BudgetsView());
+        AddNav(PackIconRemixIconKind.FileList3Fill, "Debts to Pay", () => new DebtsView());
+        AddNav(PackIconRemixIconKind.PercentFill, "Repayment", () => new RepaymentView());
     }
 
-    private void AddNav(string icon, string label, Func<UserControl> factory)
+    private void AddNav(PackIconRemixIconKind icon, string label, Func<UserControl> factory)
     {
         int index = _nav.Count;
         var btn = new Button
         {
-            Content = $"{icon}     {label}",
+            Content = NavContent(icon, label),
             Margin = new Thickness(0, 0, 0, 4),
             Foreground = (Brush)FindResource("TextDim"),
             Template = (ControlTemplate)FindResource("NavBtnTemplate"),
             Cursor = System.Windows.Input.Cursors.Hand,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
         };
         btn.Click += (_, _) => Navigate(index);
         _nav.Add((btn, factory));
         NavPanel.Children.Add(btn);
+    }
+
+    // Icon + label row; foreground is left unset so it inherits the button's (active = accent).
+    private static StackPanel NavContent(PackIconRemixIconKind icon, string label)
+    {
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        sp.Children.Add(new PackIconRemixIcon { Kind = icon, Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Center });
+        sp.Children.Add(new TextBlock { Text = label, Margin = new Thickness(13, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, FontSize = 14 });
+        return sp;
     }
 
     private void Navigate(int index)

@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Dragonfly.Models;
 using Dragonfly.Services;
+using MahApps.Metro.IconPacks;
 using static Dragonfly.Views.UiKit;
 
 namespace Dragonfly.Views;
@@ -43,7 +44,7 @@ public partial class AccountsView : UserControl
 
         // ── Bank accounts ──
         var bankPanel = new StackPanel();
-        bankPanel.Children.Add(SectionHead("🏦 Bank Accounts", Btn("+ Add Bank", "BtnSm", (_, _) => AddAccount(AccountType.Bank))));
+        bankPanel.Children.Add(SectionHeader(PackIconRemixIconKind.BankFill, "Bank Accounts", Btn("+ Add Bank", "BtnSm", (_, _) => AddAccount(AccountType.Bank))));
         if (banks.Count == 0)
         {
             bankPanel.Children.Add(Empty("No bank accounts yet. Add one to start tracking your balances."));
@@ -52,7 +53,7 @@ public partial class AccountsView : UserControl
         {
             var table = new Grid();
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+            table.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             AddHeader(table, "BANK", 0);
             AddHeader(table, "BALANCE", 1, right: true);
@@ -81,8 +82,8 @@ public partial class AccountsView : UserControl
                 Place(table, bal, row, 1);
 
                 var acts = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 4, 6) };
-                acts.Children.Add(Space(Btn("📈", "BtnGhost", (_, _) => new BalanceHistoryWindow(win, B, acc).ShowDialog())));
-                acts.Children.Add(Space(Btn("✎", "BtnGhost", (_, _) => EditAccount(acc))));
+                acts.Children.Add(Space(IconButton(PackIconRemixIconKind.LineChartFill, "BtnGhost", (_, _) => new BalanceHistoryWindow(win, B, acc).ShowDialog(), tooltip: "Balance history")));
+                acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditAccount(acc), tooltip: "Edit")));
                 Place(table, acts, row, 2);
             }
             bankPanel.Children.Add(Card(table));
@@ -93,9 +94,9 @@ public partial class AccountsView : UserControl
         if (cards.Count > 0)
         {
             var cardPanel = new StackPanel { Margin = new Thickness(0, 18, 0, 0) };
-            cardPanel.Children.Add(SectionHead("💳 Credit Cards", Btn("+ Add Card", "BtnSm", (_, _) => AddAccount(AccountType.CreditCard))));
+            cardPanel.Children.Add(SectionHeader(PackIconRemixIconKind.BankCardFill, "Credit Cards", Btn("+ Add Card", "BtnSm", (_, _) => AddAccount(AccountType.CreditCard))));
             var table = new Grid();
-            foreach (var w in new[] { new GridLength(1, GridUnitType.Star), new GridLength(100), new GridLength(100), new GridLength(100), new GridLength(1, GridUnitType.Star), GridLength.Auto })
+            foreach (var w in new[] { new GridLength(1, GridUnitType.Star), MoneyCol, MoneyCol, MoneyCol, new GridLength(1, GridUnitType.Star), GridLength.Auto })
                 table.ColumnDefinitions.Add(new ColumnDefinition { Width = w });
             AddHeader(table, "CARD", 0);
             AddHeader(table, "BALANCE", 1, right: true);
@@ -133,8 +134,8 @@ public partial class AccountsView : UserControl
                 Place(table, track, row, 4);
 
                 var acts = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 4, 6) };
-                acts.Children.Add(Space(Btn("📈", "BtnGhost", (_, _) => new BalanceHistoryWindow(win, B, card).ShowDialog())));
-                acts.Children.Add(Space(Btn("✎", "BtnGhost", (_, _) => EditAccount(card))));
+                acts.Children.Add(Space(IconButton(PackIconRemixIconKind.LineChartFill, "BtnGhost", (_, _) => new BalanceHistoryWindow(win, B, card).ShowDialog(), tooltip: "Balance history")));
+                acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditAccount(card), tooltip: "Edit")));
                 Place(table, acts, row, 5);
             }
             cardPanel.Children.Add(Card(table));
@@ -143,10 +144,10 @@ public partial class AccountsView : UserControl
 
         // ── Cash on hand ──
         var cashPanel = new StackPanel { Margin = new Thickness(0, 18, 0, 0) };
-        cashPanel.Children.Add(SectionHead("💵 Cash on Hand", null));
+        cashPanel.Children.Add(SectionHeader(PackIconRemixIconKind.CoinsFill, "Cash on Hand"));
         var cashRow = new Grid { Margin = new Thickness(0, 4, 0, 4) };
         cashRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        cashRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+        cashRow.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
         cashRow.Children.Add(new TextBlock { Text = "Cash on hand", Foreground = Res("TextDim"), VerticalAlignment = VerticalAlignment.Center });
         var cashEdit = new TextBox
         {
@@ -166,14 +167,11 @@ public partial class AccountsView : UserControl
         if (archived.Count > 0)
         {
             var archSection = new StackPanel { Margin = new Thickness(0, 24, 0, 0) };
-            var toggleBtn = Btn($"🗄  View archived ({archived.Count})", "BtnGhost", (_, _) =>
-            {
-                _showArchived = !_showArchived;
-                Refresh();
-            });
-            toggleBtn.HorizontalAlignment = HorizontalAlignment.Left;
-            toggleBtn.Foreground = Res("TextFaint");
-            toggleBtn.FontSize = 12.5;
+            var toggleContent = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            toggleContent.Children.Add(Icon(PackIconRemixIconKind.ArchiveFill, 14));
+            toggleContent.Children.Add(new TextBlock { Text = $"View archived ({archived.Count})", Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            var toggleBtn = new Button { Content = toggleContent, Style = St("BtnGhost"), HorizontalAlignment = HorizontalAlignment.Left, Foreground = Res("TextFaint"), FontSize = 12.5 };
+            toggleBtn.Click += (_, _) => { _showArchived = !_showArchived; Refresh(); };
             archSection.Children.Add(toggleBtn);
 
             if (_showArchived)
@@ -184,7 +182,7 @@ public partial class AccountsView : UserControl
                     var acc = a;
                     var g = new Grid { Margin = new Thickness(0, 4, 0, 4) };
                     g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                    g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+                    g.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
                     g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                     g.Children.Add(new TextBlock
                     {
@@ -201,9 +199,15 @@ public partial class AccountsView : UserControl
                     };
                     Grid.SetColumn(bal, 1);
                     g.Children.Add(bal);
-                    var restore = Btn("Restore", "BtnGhost", (_, _) => { acc.Archived = false; Save(); });
-                    Grid.SetColumn(restore, 2);
-                    g.Children.Add(restore);
+
+                    var acts = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+                    acts.Children.Add(Btn("Restore", "BtnGhost", (_, _) => { acc.Archived = false; Save(); }));
+                    var del = Btn("Delete", "BtnGhost", (_, _) => DeleteArchived(win, acc));
+                    del.Foreground = Res("Bad");
+                    del.Margin = new Thickness(4, 0, 0, 0);
+                    acts.Children.Add(del);
+                    Grid.SetColumn(acts, 2);
+                    g.Children.Add(acts);
                     inner.Children.Add(g);
                 }
                 var card = Card(inner);
@@ -226,6 +230,32 @@ public partial class AccountsView : UserControl
         AccountDialog.Show(win, B, existing, Save);
     }
 
+    /// <summary>Permanently remove an archived account, its balance history, and any bill links.</summary>
+    private void DeleteArchived(Window win, BankAccount acc)
+    {
+        string name = string.IsNullOrWhiteSpace(acc.Name) ? "this account" : $"“{acc.Name}”";
+        int points = B.Data.BalanceHistory.Count(e => e.AccountId == acc.Id);
+        int linkedBills = B.Data.Bills.Count(b => b.AccountId == acc.Id);
+
+        var parts = new List<string> { "the account" };
+        if (points > 0) parts.Add($"{points} recorded balance point{(points == 1 ? "" : "s")}");
+        string removed = string.Join(" and ", parts);
+        string billNote = linkedBills > 0
+            ? $" {linkedBills} bill{(linkedBills == 1 ? "" : "s")} linked to it will be unlinked (the bills stay)."
+            : "";
+
+        if (!ConfirmDialog.Ask(win, "Delete account permanently?",
+                $"This removes {removed} for {name}. Its tracked balance history will be lost and this can't be undone.{billNote}",
+                confirmText: "Delete permanently", danger: true))
+            return;
+
+        foreach (var b in B.Data.Bills.Where(b => b.AccountId == acc.Id))
+            b.AccountId = null;
+        B.Data.BalanceHistory.RemoveAll(e => e.AccountId == acc.Id);
+        B.Data.Banks.RemoveAll(a => a.Id == acc.Id);
+        Save();
+    }
+
     private static Border RightText(string text, Brush? brush = null) => new()
     {
         Padding = new Thickness(0, 0, 10, 0),
@@ -236,15 +266,6 @@ public partial class AccountsView : UserControl
     {
         el.Margin = new Thickness(g.Children.Count == 0 ? 0 : 7, 0, 7, 0);
         g.Children.Add(el);
-    }
-    private static Grid SectionHead(string title, UIElement? action)
-    {
-        var g = new Grid { Margin = new Thickness(0, 0, 0, 12) };
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        g.Children.Add(new TextBlock { Text = title, Style = St("H2") });
-        if (action != null) { Grid.SetColumn(action, 1); g.Children.Add(action); }
-        return g;
     }
     private static void AddHeader(Grid g, string text, int col, bool right = false)
     {

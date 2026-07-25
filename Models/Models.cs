@@ -186,6 +186,9 @@ public class AppSettings
     /// <summary>Per-screen sort choices, keyed by screen name ("bills", "pending", ...).</summary>
     public Dictionary<string, SortPref> Sorts { get; set; } = new();
 
+    /// <summary>User-resized table column widths (px), keyed by screen name; aligned to resizable columns.</summary>
+    public Dictionary<string, List<double>> ColumnWidths { get; set; } = new();
+
     // Updater
     public bool CheckForUpdates { get; set; } = true;
     public string? SkippedUpdateVersion { get; set; }

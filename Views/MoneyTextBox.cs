@@ -19,7 +19,9 @@ public class MoneyTextBox : TextBox
     {
         _allowNegative = allowNegative;
         Style = St("Input");
-        TextAlignment = System.Windows.TextAlignment.Right;
+        // Left-aligned so the most-significant digits stay visible if a big value overflows the field
+        // (right alignment hides the leading digits instead of the trailing decimals).
+        TextAlignment = System.Windows.TextAlignment.Left;
         SetValue(initial);
         TextChanged += OnTextChanged;
     }

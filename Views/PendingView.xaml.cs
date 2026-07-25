@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using Dragonfly.Models;
 using Dragonfly.Services;
+using MahApps.Metro.IconPacks;
 using static Dragonfly.Views.UiKit;
 
 namespace Dragonfly.Views;
@@ -27,7 +28,9 @@ public partial class PendingView : UserControl
     private void Refresh()
     {
         Body.Children.Clear();
-        var rows = B.PendingFor(S.Month);
+        var pref = B.GetSort("pending", "date");
+        var rows = BudgetService.SortPending(B.PendingFor(S.Month), pref);
+        bool manual = pref.Key == "manual";
         decimal expIn = rows.Where(r => !r.Status.Cleared && r.Item.Amount > 0).Sum(r => r.Item.Amount);
         decimal expOut = rows.Where(r => !r.Status.Cleared && r.Item.Amount < 0).Sum(r => r.Item.Amount);
 
@@ -43,8 +46,10 @@ public partial class PendingView : UserControl
         }
         else
         {
+            Body.Children.Add(SortBar());
+
             var table = new Grid();
-            foreach (var w in new[] { new GridLength(1, GridUnitType.Star), GridLength.Auto, new GridLength(120), GridLength.Auto, GridLength.Auto })
+            foreach (var w in new[] { new GridLength(1, GridUnitType.Star), GridLength.Auto, MoneyCol, GridLength.Auto, GridLength.Auto })
                 table.ColumnDefinitions.Add(new ColumnDefinition { Width = w });
             AddHeader(table, "ITEM", 0);
             AddHeader(table, "EXPECTED", 1);
@@ -52,6 +57,7 @@ public partial class PendingView : UserControl
             AddHeader(table, "STATUS", 3);
             AddHeader(table, "", 4);
 
+            var markers = new List<(FrameworkElement, object)>();
             foreach (var r in rows)
             {
                 int row = table.RowDefinitions.Count;
@@ -60,12 +66,14 @@ public partial class PendingView : UserControl
 
                 var name = new StackPanel { Margin = new Thickness(10, 9, 6, 9), Opacity = op };
                 var nameRow = new WrapPanel();
+                if (manual) nameRow.Children.Add(DragReorder.Handle(r.Item));
                 nameRow.Children.Add(new TextBlock { Text = r.Item.Name, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
                 if (r.Item.Recurrence == Recurrence.Monthly) nameRow.Children.Add(AccentBadge("Recurring"));
                 name.Children.Add(nameRow);
                 if (!string.IsNullOrWhiteSpace(r.Item.Notes))
                     name.Children.Add(new TextBlock { Text = r.Item.Notes, Foreground = Res("TextFaint"), FontSize = 12 });
                 Place(table, name, row, 0);
+                markers.Add((name, r.Item));
 
                 string when = r.Item.ExpectedDate?.ToString("MMM d")
                               ?? (string.IsNullOrWhiteSpace(r.Item.Timeframe) ? "—" : r.Item.Timeframe);
@@ -81,9 +89,10 @@ public partial class PendingView : UserControl
                 var acts = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 4, 6) };
                 acts.Children.Add(Space(Btn(r.Status.Cleared ? "Undo" : "Cleared", r.Status.Cleared ? "BtnGhost" : "BtnSm",
                     (_, _) => { r.Status.Cleared = !r.Status.Cleared; Save(); })));
-                acts.Children.Add(Space(Btn("✎", "BtnGhost", (_, _) => EditItem(r.Item))));
+                acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditItem(r.Item), tooltip: "Edit")));
                 Place(table, acts, row, 4);
             }
+            if (manual) DragReorder.AttachTable(table, markers, MoveItem);
             Body.Children.Add(Card(table));
         }
 
@@ -155,6 +164,30 @@ public partial class PendingView : UserControl
             if (isNew) { t.SortOrder = B.Data.Pending.Count; B.Data.Pending.Add(t); }
             Save();
         }
+    }
+
+    // ── sorting / manual order ──
+    private static readonly (string, string)[] SortOptions =
+    {
+        ("date", "Date"), ("amount", "Amount"), ("status", "Status"),
+        ("name", "Name"), ("manual", "Manual"),
+    };
+
+    private FrameworkElement SortBar()
+    {
+        var bar = new DockPanel { Margin = new Thickness(2, 0, 2, 10) };
+        var sort = new SortControl(B.GetSort("pending", "date"), SortOptions, () => { Save(); Refresh(); });
+        DockPanel.SetDock(sort, Dock.Right);
+        bar.Children.Add(sort);
+        bar.Children.Add(new TextBlock());
+        return bar;
+    }
+
+    private void MoveItem(object dragged, object target, bool after)
+    {
+        var order = B.Data.Pending.OrderBy(x => x.SortOrder).ToList();
+        DragReorder.Reorder(order, (PendingItem)dragged, (PendingItem)target, after, (p, i) => p.SortOrder = i);
+        Save();
     }
 
     private static void AddSpaced(UniformGrid g, FrameworkElement el)

@@ -22,7 +22,7 @@
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Bottom">
-                    <Button x:Name="SettingsBtn" Content="⚙  Settings" Click="Settings_Click"
+                    <Button x:Name="SettingsBtn" Click="Settings_Click"
                             Foreground="{StaticResource TextDim}" Cursor="Hand"
                             Template="{StaticResource NavBtnTemplate}" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Left"/>

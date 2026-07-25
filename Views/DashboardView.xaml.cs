@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Dragonfly.Models;
 using Dragonfly.Services;
+using MahApps.Metro.IconPacks;
 using static Dragonfly.Views.UiKit;
 
 namespace Dragonfly.Views;
@@ -43,22 +44,37 @@ public partial class DashboardView : UserControl
             s.AmountBehind < 0 ? Res("Bad") : Res("Good")));
         Body.Children.Add(stats);
 
-        // ── Two columns ──
+        // With cards: bank + card panels sit side by side across the top. Without cards: the bank
+        // panel drops into the left column (matching the attention width) so the breakdown rises up.
+        var cardsPanel = BuildCreditCards(s);
+        if (cardsPanel != null)
+        {
+            var accountsRow = new Grid();
+            accountsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            accountsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+            accountsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var banksTop = BuildBanks(s);
+            Grid.SetColumn(banksTop, 0);
+            Grid.SetColumn(cardsPanel, 2);
+            accountsRow.Children.Add(banksTop);
+            accountsRow.Children.Add(cardsPanel);
+            Body.Children.Add(accountsRow);
+        }
+
+        // ── Two columns: bank (if no cards) + attention + pending on the left, breakdown on the right ──
         var cols = new Grid();
         cols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
         cols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
         cols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         var left = new StackPanel();
+        if (cardsPanel == null) left.Children.Add(BuildBanks(s));
         left.Children.Add(BuildAttention(today, soon));
         left.Children.Add(BuildPending());
         Grid.SetColumn(left, 0);
         cols.Children.Add(left);
 
         var right = new StackPanel();
-        right.Children.Add(BuildBanks(s));
-        var cc = BuildCreditCards(s);
-        if (cc != null) right.Children.Add(cc);
         right.Children.Add(BuildBreakdown(s));
         Grid.SetColumn(right, 2);
         cols.Children.Add(right);
@@ -77,7 +93,7 @@ public partial class DashboardView : UserControl
     {
         var rows = B.BillsFor(S.Month).Where(b => b.Remaining > 0 && b.DueDate <= soon).ToList();
         var panel = new StackPanel();
-        panel.Children.Add(SectionHead("⚡ Needs attention", null));
+        panel.Children.Add(SectionHeader(PackIconRemixIconKind.ErrorWarningFill, "Needs attention"));
 
         if (rows.Count == 0)
         {
@@ -88,7 +104,7 @@ public partial class DashboardView : UserControl
             var table = new Grid();
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+            table.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             foreach (var r in rows)
             {
@@ -125,7 +141,7 @@ public partial class DashboardView : UserControl
     {
         var rows = B.PendingFor(S.Month);
         var panel = new StackPanel();
-        panel.Children.Add(SectionHead("⏳ Pending this month", null));
+        panel.Children.Add(SectionHeader(PackIconRemixIconKind.TimeFill, "Pending this month"));
 
         if (rows.Count == 0)
         {
@@ -136,7 +152,7 @@ public partial class DashboardView : UserControl
             var table = new Grid();
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
+            table.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             foreach (var r in rows)
             {
@@ -183,7 +199,7 @@ public partial class DashboardView : UserControl
     {
         var win = Window.GetWindow(this)!;
         var panel = new StackPanel();
-        panel.Children.Add(SectionHead("🏦 Bank Accounts", null));
+        panel.Children.Add(SectionHeader(PackIconRemixIconKind.BankFill, "Bank Accounts"));
 
         if (!B.BankAccounts().Any() && B.Data.CashOnHand == 0)
         {
@@ -198,7 +214,7 @@ public partial class DashboardView : UserControl
             grid.Children.Add(Divider());
             var cashRow = new Grid { Margin = new Thickness(0, 6, 0, 6) };
             cashRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            cashRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+            cashRow.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
             cashRow.Children.Add(new TextBlock { Text = "Cash on hand", Foreground = Res("TextDim"), VerticalAlignment = VerticalAlignment.Center });
             var cash = MakeEdit(Fmt.Money(B.Data.CashOnHand), null, left: false, commit: t => { B.Data.CashOnHand = ParseMoney(t); Save(); }, formatMoney: true);
             cash.Margin = new Thickness(8, 0, 0, 0);
@@ -221,7 +237,7 @@ public partial class DashboardView : UserControl
 
         var win = Window.GetWindow(this)!;
         var panel = new StackPanel();
-        panel.Children.Add(SectionHead("💳 Credit Cards", null));
+        panel.Children.Add(SectionHeader(PackIconRemixIconKind.BankCardFill, "Credit Cards"));
 
         var grid = new StackPanel();
         foreach (var card in cards)
@@ -249,8 +265,8 @@ public partial class DashboardView : UserControl
             Place(row, balTb, 0, 1);
 
             var actions = new StackPanel { Orientation = Orientation.Horizontal };
-            actions.Children.Add(Btn("📈", "BtnGhost", (_, _) => new BalanceHistoryWindow(win, B, card).ShowDialog()));
-            actions.Children.Add(Space(Btn("✎", "BtnGhost", (_, _) => AccountDialog.Show(win, B, card, Save))));
+            actions.Children.Add(IconButton(PackIconRemixIconKind.LineChartFill, "BtnGhost", (_, _) => new BalanceHistoryWindow(win, B, card).ShowDialog(), tooltip: "Balance history"));
+            actions.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => AccountDialog.Show(win, B, card, Save), tooltip: "Edit")));
             Place(row, actions, 0, 2);
 
             grid.Children.Add(row);
@@ -266,7 +282,7 @@ public partial class DashboardView : UserControl
     {
         var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         row.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(acc.Name) ? "(unnamed)" : acc.Name, VerticalAlignment = VerticalAlignment.Center });
@@ -276,8 +292,8 @@ public partial class DashboardView : UserControl
         Place(row, bal, 0, 1);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal };
-        actions.Children.Add(Btn("📈", "BtnGhost", (_, _) => new BalanceHistoryWindow(win, B, acc).ShowDialog()));
-        actions.Children.Add(Space(Btn("✎", "BtnGhost", (_, _) => AccountDialog.Show(win, B, acc, Save))));
+        actions.Children.Add(IconButton(PackIconRemixIconKind.LineChartFill, "BtnGhost", (_, _) => new BalanceHistoryWindow(win, B, acc).ShowDialog(), tooltip: "Balance history"));
+        actions.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => AccountDialog.Show(win, B, acc, Save), tooltip: "Edit")));
         Place(row, actions, 0, 2);
 
         return row;
@@ -296,15 +312,34 @@ public partial class DashboardView : UserControl
 
     private Border BuildBreakdown(MonthSummary s)
     {
+        bool hasCards = s.CreditTotal != 0 || s.UnpaidFromCard != 0;
         var panel = new StackPanel();
-        panel.Children.Add(SectionHead("📉 Month breakdown", null));
-        panel.Children.Add(BreakRow("Bank + cash now", Fmt.Money(s.TotalFunds), Res("Text")));
-        panel.Children.Add(BreakRow("Unpaid bills", Fmt.Money(-s.TotalUnpaid), Res("Bad")));
+        panel.Children.Add(SectionHeader(PackIconRemixIconKind.PieChartFill, "Month breakdown"));
+
+        // ── Bank + cash side: only bills paid from bank/cash lower this.
+        panel.Children.Add(Caption("Bank & cash", first: true));
+        panel.Children.Add(BreakRow("Balance now", Fmt.Money(s.TotalFunds), Res("Text")));
+        panel.Children.Add(BreakRow("Unpaid bills from bank/cash", Fmt.Money(-s.UnpaidFromBank), Res("Bad")));
         panel.Children.Add(BreakRow("Pending deposits", Fmt.MoneySigned(s.PendingIn), Res("Good")));
         panel.Children.Add(BreakRow("Pending withdrawals", Fmt.Money(s.PendingOut), Res("Bad")));
-        panel.Children.Add(BreakRow("Projected end of month", Fmt.Money(s.EndOfMonthProjection),
+        panel.Children.Add(BreakRow("Projected balance", Fmt.Money(s.EndOfMonthProjection),
             s.EndOfMonthProjection < 0 ? Res("Bad") : Res("Good"), bold: true, topBorder: true));
-        panel.Children.Add(new TextBlock { Text = "Assumes all bills get paid and all pending items happen.", Style = St("Faint"), Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap });
+
+        // ── Credit-card side: bills paid on a card raise what's owed (shown only when cards are in play).
+        if (hasCards)
+        {
+            panel.Children.Add(Caption("Credit cards"));
+            panel.Children.Add(BreakRow("Owed now", Fmt.Money(s.CreditTotal), s.CreditTotal > 0 ? Res("Bad") : Res("Text")));
+            panel.Children.Add(BreakRow("Unpaid bills on cards", Fmt.MoneySigned(s.UnpaidFromCard), Res("Bad")));
+            panel.Children.Add(BreakRow("Projected owed", Fmt.Money(s.ProjectedCardOwed),
+                s.ProjectedCardOwed > 0 ? Res("Bad") : Res("Text"), bold: true, topBorder: true));
+        }
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Bills paid from a bank or cash lower your balance; bills paid on a card raise what you owe. Assumes every bill is paid and all pending items happen.",
+            Style = St("Faint"), Margin = new Thickness(0, 12, 0, 0), TextWrapping = TextWrapping.Wrap,
+        });
         return Card(panel);
     }
 
@@ -330,15 +365,15 @@ public partial class DashboardView : UserControl
         return g;
     }
 
-    private static Grid SectionHead(string title, UIElement? action)
+    // Small accent sub-header used to label the parallel groups in the breakdown.
+    private static TextBlock Caption(string text, bool first = false) => new()
     {
-        var g = new Grid { Margin = new Thickness(0, 0, 0, 12) };
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        g.Children.Add(new TextBlock { Text = title, Style = St("H2") });
-        if (action != null) { Grid.SetColumn(action, 1); g.Children.Add(action); }
-        return g;
-    }
+        Text = text.ToUpper(),
+        Foreground = Res("Accent"),
+        FontSize = 11,
+        FontWeight = FontWeights.SemiBold,
+        Margin = new Thickness(0, first ? 2 : 22, 0, 6),
+    };
 
     private TextBox MakeEdit(string value, string? placeholder, bool left, Action<string> commit, bool formatMoney = false)
     {

@@ -81,6 +81,9 @@ public class EditDialog : Window
     }
 
     private int _row;
+    // A half-width left field is on the current row waiting for a right-column partner. If the next
+    // element isn't that partner, we must advance past it so nothing overlaps it.
+    private bool _leftHalfOpen;
 
     /// <summary>Add a field spanning full width, or half (col 0/2) when half=true and paired.</summary>
     public void Add(string label, FrameworkElement control, bool full = true, bool rightColumn = false)
@@ -97,25 +100,37 @@ public class EditDialog : Window
 
         if (full)
         {
+            if (_leftHalfOpen) { _row++; _leftHalfOpen = false; }
             Grid.SetColumnSpan(stack, 3);
             Grid.SetRow(stack, _row);
             _fields.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _fields.Children.Add(stack);
             _row++;
         }
+        else if (!rightColumn)
+        {
+            if (_leftHalfOpen) _row++;   // previous left field had no partner; move to a fresh row
+            Grid.SetColumn(stack, 0);
+            Grid.SetRow(stack, _row);
+            _fields.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _fields.Children.Add(stack);
+            _leftHalfOpen = true;
+        }
         else
         {
-            Grid.SetColumn(stack, rightColumn ? 2 : 0);
+            if (!_leftHalfOpen) _fields.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetColumn(stack, 2);
             Grid.SetRow(stack, _row);
-            if (!rightColumn) _fields.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _fields.Children.Add(stack);
-            if (rightColumn) _row++;
+            _row++;
+            _leftHalfOpen = false;
         }
         return stack;
     }
 
     public void AddHint(string text)
     {
+        if (_leftHalfOpen) { _row++; _leftHalfOpen = false; }
         var tb = new TextBlock { Text = text, Style = St("Faint"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) };
         Grid.SetColumnSpan(tb, 3);
         Grid.SetRow(tb, _row);
@@ -165,12 +180,47 @@ public class EditDialog : Window
     }
 
     /// <summary>Editable combo: pick a suggestion or type a new value. Text holds the result.</summary>
-    public static ComboBox EditableCombo(IEnumerable<string> suggestions, string current)
+    public static ComboBox EditableCombo(IEnumerable<string> suggestions, string current, bool sort = true)
     {
         var c = new ComboBox { Style = St("ComboEditable") };
-        foreach (var s in suggestions.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().OrderBy(x => x))
-            c.Items.Add(s);
+        var items = suggestions.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct();
+        if (sort) items = items.OrderBy(x => x);
+        foreach (var s in items) c.Items.Add(s);
         c.Text = current;
         return c;
     }
+
+    /// <summary>
+    /// "Pay from" picker: your tracked accounts appear first under a header, then a separator, then
+    /// generic/custom names. You can still type any value. <see cref="ComboBox.Text"/> holds the result.
+    /// </summary>
+    public static ComboBox AccountCombo(IEnumerable<string> tracked, IEnumerable<string> extras, string current)
+    {
+        var c = new ComboBox { Style = St("ComboEditable") };
+        var trackedList = tracked.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+        var extraList = extras.Where(x => !string.IsNullOrWhiteSpace(x))
+            .Where(x => !trackedList.Contains(x, StringComparer.OrdinalIgnoreCase)).ToList();
+
+        if (trackedList.Count > 0)
+        {
+            c.Items.Add(Header("YOUR ACCOUNTS"));
+            foreach (var s in trackedList) c.Items.Add(s);
+            if (extraList.Count > 0) c.Items.Add(new Separator());
+        }
+        foreach (var s in extraList) c.Items.Add(s);
+
+        c.Text = current;
+        return c;
+    }
+
+    // A non-selectable heading row for grouped combos.
+    private static ComboBoxItem Header(string text) => new()
+    {
+        Content = text,
+        IsEnabled = false,
+        Focusable = false,
+        FontSize = 10.5,
+        FontWeight = FontWeights.SemiBold,
+        Foreground = Res("TextFaint"),
+    };
 }

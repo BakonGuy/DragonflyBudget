@@ -145,6 +145,29 @@
         <Setter Property="MinWidth" Value="110"/>
     </Style>
 
+    <!-- Themed tooltip (default is white-on-white on this dark UI) -->
+    <Style TargetType="ToolTip">
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        <Setter Property="Background" Value="{StaticResource Panel2}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="FontSize" Value="12.5"/>
+        <Setter Property="Padding" Value="8,5"/>
+        <Setter Property="HasDropShadow" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ── Chromeless toggle (dropdown arrows inside boxes) ──── -->
     <Style x:Key="IconToggle" TargetType="ToggleButton">
         <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
@@ -625,8 +648,9 @@
     <!-- ── Nav button ──────────────────────────────────────── -->
     <ControlTemplate x:Key="NavBtnTemplate" TargetType="Button">
         <Border x:Name="b" Background="Transparent" CornerRadius="4" Padding="12,10">
-            <TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"
-                       FontSize="14" FontWeight="Medium"/>
+            <ContentPresenter VerticalAlignment="Center"
+                              TextElement.Foreground="{TemplateBinding Foreground}"
+                              TextElement.FontSize="14" TextElement.FontWeight="Medium"/>
         </Border>
         <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">

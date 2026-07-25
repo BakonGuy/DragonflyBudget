@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using Dragonfly.Models;
 using Dragonfly.Services;
+using MahApps.Metro.IconPacks;
 using static Dragonfly.Views.UiKit;
 
 namespace Dragonfly.Views;
@@ -29,7 +30,9 @@ public partial class BillsView : UserControl
         SubText.Text = $"Bills for {BudgetService.MonthLabel(S.Month)}. Every month keeps its own paid history.";
         Body.Children.Clear();
 
-        var rows = B.BillsFor(S.Month);
+        var pref = B.GetSort("bills", "date");
+        var rows = BudgetService.SortBills(B.BillsFor(S.Month), pref);
+        bool manual = pref.Key == "manual";
         var s = B.Summarize(S.Month);
         var today = DateOnly.FromDateTime(DateTime.Today);
         var soon = today.AddDays(7);
@@ -47,17 +50,20 @@ public partial class BillsView : UserControl
             return;
         }
 
+        Body.Children.Add(SortBar("bills", "date"));
+
         var table = new Grid();
-        foreach (var w in new[] { new GridLength(1, GridUnitType.Star), GridLength.Auto, new GridLength(110), GridLength.Auto, new GridLength(150), GridLength.Auto })
+        foreach (var w in new[] { new GridLength(1, GridUnitType.Star), new GridLength(120), MoneyCol, new GridLength(150), new GridLength(170), GridLength.Auto })
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = w });
 
         AddHeader(table, "BILL", 0);
         AddHeader(table, "DUE", 1);
         AddHeader(table, "AMOUNT", 2, right: true);
         AddHeader(table, "STATUS", 3);
-        AddHeader(table, "PAYMENT", 4);
+        AddHeader(table, "ACCOUNT", 4);
         AddHeader(table, "", 5);
 
+        var markers = new List<(FrameworkElement, object)>();
         foreach (var r in rows)
         {
             int row = table.RowDefinitions.Count;
@@ -74,10 +80,12 @@ public partial class BillsView : UserControl
 
             // name
             var name = new WrapPanel { Margin = new Thickness(10, 10, 6, 10), Opacity = op };
+            if (manual) name.Children.Add(DragReorder.Handle(r.Bill));
             name.Children.Add(new TextBlock { Text = r.Bill.Name, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
             if (r.Bill.Recurrence == Recurrence.OneOff) name.Children.Add(Badge("One-off", "TextDim", "TextDim"));
             if (r.Bill.AutoPay) name.Children.Add(AccentBadge("Auto"));
             Place(table, name, row, 0);
+            markers.Add((name, r.Bill));
 
             // due
             var due = new WrapPanel { Margin = new Thickness(10, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Opacity = op };
@@ -107,7 +115,9 @@ public partial class BillsView : UserControl
             Place(table, stCell, row, 3);
 
             // payment
-            string pm = r.Bill.PaymentMethod + (string.IsNullOrWhiteSpace(r.Bill.AccountName) ? "" : $" · {r.Bill.AccountName}");
+            // Account first, then the optional sub-info label.
+            string pm = string.Join(" · ", new[] { r.Bill.AccountName, r.Bill.PaymentMethod }
+                .Where(s => !string.IsNullOrWhiteSpace(s)));
             Place(table, new TextBlock { Text = pm, Foreground = Res("TextDim"), FontSize = 12.5, Margin = new Thickness(10, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Opacity = op, TextTrimming = TextTrimming.CharacterEllipsis }, row, 4);
 
             // actions
@@ -126,10 +136,13 @@ public partial class BillsView : UserControl
             {
                 acts.Children.Add(Space(Btn("Undo", "BtnGhost", (_, _) => { r.Status.Status = PayStatus.Unpaid; r.Status.AmountPaid = 0; r.Status.PaidDate = null; r.Status.UserSet = true; Save(); })));
             }
-            acts.Children.Add(Space(Btn("✎", "BtnGhost", (_, _) => EditBill(r.Bill))));
+            acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditBill(r.Bill), tooltip: "Edit")));
             Place(table, acts, row, 5);
         }
 
+        if (manual) DragReorder.AttachTable(table, markers, MoveBill);
+        // Persist widths for cols 1–4; no handle between DUE (left-aligned) and AMOUNT (right-aligned).
+        ColumnResize.Apply(table, "bills", new[] { 1, 2, 3, 4 }, S.Settings, Save, handleCols: new[] { 1, 3, 4 });
         Body.Children.Add(Card(table));
     }
 
@@ -180,8 +193,8 @@ public partial class BillsView : UserControl
         var start = new MonthPicker(); start.Set(b?.StartMonth ?? S.Month);
         var end = new MonthPicker(allowEmpty: true); end.Set(b?.EndMonth);
         var autopay = EditDialog.Combo(new[] { "Manual", "Autopay" }, (b?.AutoPay ?? false) ? "Autopay" : "Manual");
-        var method = EditDialog.EditableCombo(B.PaymentMethods(), b?.PaymentMethod ?? "");
-        var account = EditDialog.EditableCombo(B.AccountNames(), b?.AccountName ?? "");
+        var method = EditDialog.EditableCombo(B.PaymentMethods(), b?.PaymentMethod ?? "", sort: false);
+        var account = EditDialog.AccountCombo(B.TrackedAccountNames(), B.ExtraAccountNames(), b?.AccountName ?? "");
         var notes = EditDialog.Notes(b?.Notes ?? "");
 
         dlg.AddSection("Bill");
@@ -195,9 +208,10 @@ public partial class BillsView : UserControl
         dlg.Add("Ends (blank = indefinite)", end, full: false, rightColumn: true);
 
         dlg.AddSection("Payment");
-        dlg.Add("Autopay?", autopay, full: false);
-        dlg.Add("Payment method", method, full: false, rightColumn: true);
-        dlg.Add("From account", account);
+        dlg.Add("Pay from account", account);
+        dlg.Add("Sub info", method, full: false);
+        dlg.Add("Autopay?", autopay, full: false, rightColumn: true);
+        dlg.AddHint("“Pay from account”: pick a tracked account so its balance updates automatically when the bill is paid, or type any name. “Sub info” is an optional label like Checking, Savings, or Direct Deposit.");
 
         dlg.AddSection("Notes");
         dlg.Add("Anything to remember", notes);
@@ -237,6 +251,30 @@ public partial class BillsView : UserControl
             if (isNew) { target.SortOrder = B.Data.Bills.Count; B.Data.Bills.Add(target); }
             Save();
         }
+    }
+
+    // ── sorting / manual order ──
+    private static readonly (string, string)[] SortOptions =
+    {
+        ("date", "Due date"), ("amount", "Amount"), ("status", "Status"),
+        ("name", "Name"), ("manual", "Manual"),
+    };
+
+    private FrameworkElement SortBar(string screen, string def)
+    {
+        var bar = new DockPanel { Margin = new Thickness(2, 0, 2, 10) };
+        var sort = new SortControl(B.GetSort(screen, def), SortOptions, () => { Save(); Refresh(); });
+        DockPanel.SetDock(sort, Dock.Right);
+        bar.Children.Add(sort);
+        bar.Children.Add(new TextBlock());   // filler so the control right-aligns
+        return bar;
+    }
+
+    private void MoveBill(object dragged, object target, bool after)
+    {
+        var order = B.Data.Bills.OrderBy(x => x.SortOrder).ToList();
+        DragReorder.Reorder(order, (Bill)dragged, (Bill)target, after, (b, i) => b.SortOrder = i);
+        Save();
     }
 
     // ── helpers ──
