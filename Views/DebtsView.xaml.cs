@@ -67,9 +67,9 @@ public partial class DebtsView : UserControl
 
                 Place(table, RightText(Fmt.Money(debt.TotalOwed)), row, 1);
 
-                var paid = new TextBox { Text = debt.AmountPaid.ToString("0.00"), Style = St("InputNum"), MinWidth = 90, Margin = new Thickness(0, 0, 8, 0), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-                paid.LostFocus += (_, _) => { debt.AmountPaid = ParseMoney(paid.Text); Save(); };
-                paid.KeyDown += (_, e) => { if (e.Key == Key.Enter) { debt.AmountPaid = ParseMoney(paid.Text); Save(); } };
+                var paid = new TextBox { Text = Fmt.Money(debt.AmountPaid), Style = St("InputNum"), MinWidth = 90, Margin = new Thickness(0, 0, 8, 0), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+                paid.LostFocus += (_, _) => { var v = ParseMoney(paid.Text); debt.AmountPaid = v; Save(); paid.Text = Fmt.Money(v); };
+                paid.KeyDown += (_, e) => { if (e.Key == Key.Enter) { var v = ParseMoney(paid.Text); debt.AmountPaid = v; Save(); paid.Text = Fmt.Money(v); } };
                 Place(table, paid, row, 2);
 
                 var left = RightText(Fmt.Money(debt.AmountLeft));

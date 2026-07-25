@@ -94,6 +94,7 @@ public partial class MainWindow : Window
     private void BuildNav()
     {
         AddNav("◈", "Dashboard", () => new DashboardView());
+        AddNav("🏦", "Accounts", () => new AccountsView());
         AddNav("🗓", "Bills", () => new BillsView());
         AddNav("⏳", "Pending", () => new PendingView());
         AddNav("📋", "Debts to Pay", () => new DebtsView());

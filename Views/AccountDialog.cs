@@ -9,15 +9,16 @@ namespace Dragonfly.Views;
 /// <summary>Add/edit a bank account or credit card.</summary>
 public static class AccountDialog
 {
-    public static bool Show(Window owner, BudgetService b, BankAccount? existing, Action save)
+    public static bool Show(Window owner, BudgetService b, BankAccount? existing, Action save, AccountType? defaultType = null)
     {
         bool isNew = existing == null;
         var a = existing;
         var dlg = new EditDialog(isNew ? "Add account" : "Edit account", owner);
 
         var name = EditDialog.Text(a?.Name ?? "", "e.g. Capital One");
+        var typeDefault = a?.Type ?? defaultType ?? AccountType.Bank;
         var type = EditDialog.Combo(new[] { "Bank / cash account", "Credit card" },
-            (a?.Type ?? AccountType.Bank) == AccountType.CreditCard ? "Credit card" : "Bank / cash account");
+            typeDefault == AccountType.CreditCard ? "Credit card" : "Bank / cash account");
         var balance = new MoneyTextBox(a?.Balance ?? 0, allowNegative: true);
         var limit = new MoneyTextBox(a?.CreditLimit ?? 0);
         var apr = EditDialog.Text((a?.AprPercent ?? 0).ToString("0.##"), "e.g. 24.99");
@@ -37,7 +38,7 @@ public static class AccountDialog
         var limitField = dlg.AddTracked("Credit limit", limit, full: false);
         var aprField = dlg.AddTracked("Interest rate (APR %)", apr, full: false, rightColumn: true);
         var payField = dlg.AddTracked("Your monthly payment", payment, full: false);
-        var showField = dlg.AddTracked("On repayment screen?", showRepay);
+        var showField = dlg.AddTracked("On repayment screen?", showRepay, full: false, rightColumn: true);
 
         void SyncType()
         {

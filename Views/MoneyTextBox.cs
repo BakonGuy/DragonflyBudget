@@ -132,7 +132,7 @@ public class MoneyTextBox : TextBox
         var sb = new StringBuilder();
         if (neg) sb.Append('-');
         sb.Append('$').Append(grouped);
-        if (hasDot) sb.Append('.').Append(decPart);
+        if (hasDot) sb.Append('.').Append(decPart.Length > 0 ? decPart.PadRight(2, '0') : decPart);
         return sb.ToString();
     }
 
