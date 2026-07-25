@@ -279,21 +279,32 @@ public class UpdateService
     public void LaunchInstallerAndExit(string installerPath)
     {
         int pid = Environment.ProcessId;
-        string exe = AppInfo.ExePath;
+        string exe = Path.Combine(AppInfo.InstallDir, "Dragonfly.exe");
         var updatesDir = App.State.Store.UpdatesDir;
         string bat = Path.Combine(updatesDir, "run-update.cmd");
+        string log = Path.Combine(updatesDir, "update.log");
         string ext = Path.GetExtension(installerPath).ToLowerInvariant();
 
         string runLine = ext == ".msi"
             ? $"msiexec /i \"{installerPath}\" /qb /norestart"
             : $"\"{installerPath}\"";
 
+        // Write a pre-flight log entry so we know the launcher started
+        try { File.WriteAllText(log, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Starting launcher (PID {pid}, installer: {installerPath})" + Environment.NewLine); } catch { }
+
         File.WriteAllText(bat, $"""
             @echo off
+            echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Waiting for PID {pid} to exit... >> "{log}"
             :wait
             tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto wait)
+            echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] PID {pid} exited. Running installer... >> "{log}"
+            echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Running: {runLine} >> "{log}"
             {runLine}
+            set EXIT_CODE=%ERRORLEVEL%
+            echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Installer exit code: %EXIT_CODE% >> "{log}"
+            echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Relaunching: {exe} >> "{log}"
             start "" "{exe}"
+            echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Relaunch sent. Cleaning up... >> "{log}"
             del "%~f0"
             """);
 

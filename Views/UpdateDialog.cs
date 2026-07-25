@@ -168,11 +168,8 @@ public class UpdateDialog : Window
 
         var progress = new Progress<double>(p =>
         {
-            Dispatcher.Invoke(() =>
-            {
-                _progressBar.Value = p;
-                _statusText.Text = $"{(int)(p * 100)}%";
-            });
+            _progressBar.Value = p;
+            _statusText.Text = $"{(int)(p * 100)}%";
         });
 
         var path = await _updater.DownloadAsync(_info, progress, _cts.Token);
