@@ -20,6 +20,7 @@ public class DataStore
     /// <summary>Where the data file and backups live, kept out of the install root.</summary>
     public string SavedDir { get; }
     public string BackupDir { get; }
+    public string UpdatesDir { get; }
     public string DataFile { get; }
 
     // Back-compat: some callers still ask for "DataDir" (now the Saved folder).
@@ -34,8 +35,10 @@ public class DataStore
         RootDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OvertorqueCreations", "Dragonfly");
         SavedDir = Path.Combine(RootDir, "Saved");
         BackupDir = Path.Combine(SavedDir, "Backups");
+        UpdatesDir = Path.Combine(RootDir, "Updates");
         Directory.CreateDirectory(SavedDir);
         Directory.CreateDirectory(BackupDir);
+        Directory.CreateDirectory(UpdatesDir);
         DataFile = Path.Combine(SavedDir, "dragonfly-data.json");
 
         MigrateStorageLayout();

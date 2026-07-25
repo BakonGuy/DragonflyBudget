@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Dragonfly.Models;
 using Dragonfly.Services;
+using MahApps.Metro.IconPacks;
 using static Dragonfly.Views.UiKit;
 
 namespace Dragonfly.Views;
@@ -40,6 +42,7 @@ public class SettingsWindow : Window
 
         BuildAppearance();
         BuildBills();
+        BuildUpdates();
 
         SourceInitialized += (_, _) => NativeTheme.ApplyDark(this);
     }
@@ -103,6 +106,133 @@ public class SettingsWindow : Window
     {
         if (S.Settings.AutopayCountsAsPaid == on) return;
         S.Settings.AutopayCountsAsPaid = on;
+        S.Save();
+    }
+
+    // ── Updates ──
+    private void BuildUpdates()
+    {
+        _body.Children.Add(SectionHead("Updates"));
+
+        // Current version
+        var versionRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+        versionRow.Children.Add(Icon(PackIconRemixIconKind.InformationFill, 16, Res("Accent")));
+        versionRow.Children.Add(new TextBlock
+        {
+            Text = $"Current version: v{AppInfo.VersionString}",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+            FontSize = 13.5,
+            Foreground = Res("TextDim"),
+        });
+        _body.Children.Add(versionRow);
+
+        // Auto-check toggle
+        var autoCheck = new CheckBox
+        {
+            Style = St("Check"),
+            Content = "Check for updates automatically",
+            IsChecked = S.Settings.CheckForUpdates,
+            Margin = new Thickness(0, 2, 0, 0),
+        };
+        autoCheck.Checked += (_, _) => ToggleAutoCheck(true);
+        autoCheck.Unchecked += (_, _) => ToggleAutoCheck(false);
+        _body.Children.Add(autoCheck);
+
+        // Manual check
+        var status = new TextBlock
+        {
+            Style = St("Faint"),
+            Margin = new Thickness(0, 6, 0, 0),
+            TextWrapping = TextWrapping.Wrap,
+        };
+        Button checkBtn = null!;
+        StackPanel checkRow = null!;
+        checkBtn = Btn("Check for updates", "BtnSm", async (_, _) =>
+        {
+            checkBtn.IsEnabled = false;
+            checkBtn.Content = "Checking...";
+            status.Text = "";
+
+            var result = await new UpdateService().CheckAsync(manual: true);
+
+            checkBtn.IsEnabled = true;
+            checkBtn.Content = "Check for updates";
+
+            switch (result.Outcome)
+            {
+                case UpdateOutcome.UpToDate:
+                    status.Text = "You're on the latest version.";
+                    status.Foreground = Res("Good");
+                    break;
+
+                case UpdateOutcome.Available when result.Info != null:
+                    status.Text = $"Update available: v{result.Info.Version}";
+                    status.Foreground = Res("Accent");
+                    var updateNow = Btn("Update now", "BtnGhost", (_, _) =>
+                    {
+                        UpdateDialog.Show(Owner, result.Info, new UpdateService());
+                    });
+                    updateNow.Margin = new Thickness(8, 0, 0, 0);
+                    updateNow.FontSize = 12;
+                    checkRow.Children.Add(updateNow);
+                    break;
+
+                case UpdateOutcome.Throttled:
+                    var secs = result.RetryAfter?.TotalSeconds ?? 0;
+                    status.Text = $"Please wait {Math.Ceiling(secs)}s before checking again.";
+                    status.Foreground = Res("Warn");
+                    break;
+
+                case UpdateOutcome.NoAsset when result.Info != null:
+                    status.Text = "A new version exists but has no installer asset — ";
+                    status.Foreground = Res("Warn");
+                    var viewLink = Btn("View release", "BtnGhost", (_, _) =>
+                    {
+                        try
+                        {
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(result.Info.HtmlUrl) { UseShellExecute = true });
+                        }
+                        catch { }
+                    });
+                    viewLink.FontSize = 12;
+                    viewLink.Margin = new Thickness(0, 0, 0, 0);
+                    checkRow.Children.Add(viewLink);
+                    break;
+
+                case UpdateOutcome.Failed:
+                    status.Text = result.Error ?? "Couldn't check for updates. Check your connection.";
+                    status.Foreground = Res("Bad");
+                    break;
+            }
+        });
+        checkRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        checkRow.Children.Add(checkBtn);
+        checkRow.Children.Add(status);
+        _body.Children.Add(checkRow);
+
+        // Last checked
+        var lastChecked = new TextBlock
+        {
+            Style = St("Faint"),
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+        UpdateLastCheckedLabel(lastChecked);
+        App.State.DataChanged += () => Dispatcher.Invoke(() => UpdateLastCheckedLabel(lastChecked));
+        _body.Children.Add(lastChecked);
+    }
+
+    private static void UpdateLastCheckedLabel(TextBlock label)
+    {
+        var last = App.State.Settings.LastUpdateCheckUtc;
+        label.Text = last.HasValue ? $"Last checked: {last.Value.ToLocalTime():g}" : "";
+        label.Visibility = last.HasValue ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ToggleAutoCheck(bool on)
+    {
+        if (S.Settings.CheckForUpdates == on) return;
+        S.Settings.CheckForUpdates = on;
         S.Save();
     }
 

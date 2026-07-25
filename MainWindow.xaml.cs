@@ -1,7 +1,7 @@
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Dragonfly.Services;
 using Dragonfly.Views;
 using MahApps.Metro.IconPacks;
 
@@ -11,11 +11,18 @@ public partial class MainWindow : Window
 {
     private readonly List<(Button Btn, Func<UserControl> Factory)> _nav = new();
     private readonly UserControl?[] _views;
+    private readonly UpdateService _updater = new();
     private Button? _active;
+
+    internal UpdateInfo? PendingUpdate { get; set; }
 
     public MainWindow()
     {
         InitializeComponent();
+
+        AppInfo.ForceUpdate = Environment.GetCommandLineArgs().Any(a =>
+            a.Equals("--force-update", StringComparison.OrdinalIgnoreCase));
+
         RestoreWindowBounds();
         Closing += (_, _) => SaveWindowBounds();
         BuildNav();
@@ -23,12 +30,65 @@ public partial class MainWindow : Window
         Navigate(0);
         Icon = DragonflyIcon.MakeIcon();
         BrandIcon.Source = DragonflyIcon.BuildMediumImage(DragonflyIcon.Accent);
-        VersionText.Text = $"v{AppVersion}";
+        VersionText.Text = $"v{AppInfo.VersionString}";
         SettingsBtn.Content = NavContent(PackIconRemixIconKind.SettingsFill, "Settings");
+
+        // Background auto-update check after window loads
+        Loaded += async (_, _) =>
+        {
+            await Task.Delay(2000);
+            await CheckForUpdateAsync();
+        };
     }
 
     private void Settings_Click(object sender, RoutedEventArgs e)
         => new Views.SettingsWindow(this).ShowDialog();
+
+    private async Task CheckForUpdateAsync()
+    {
+        try
+        {
+            var result = await _updater.CheckAsync(manual: false);
+            if (result.Outcome == UpdateOutcome.Available && result.Info != null)
+            {
+                PendingUpdate = result.Info;
+                ShowUpdateBanner(result.Info);
+            }
+        }
+        catch
+        {
+            // Swallow — never crash on auto-check
+        }
+    }
+
+    internal void ShowUpdateBanner(UpdateInfo info)
+    {
+        UpdateBanner.Content = new StackPanel
+        {
+            Children =
+            {
+                new StackPanel { Orientation = Orientation.Horizontal, Children =
+                {
+                    new TextBlock { Text = "⬇", FontSize = 12, VerticalAlignment = VerticalAlignment.Center },
+                    new TextBlock { Text = $"Update to v{info.Version}", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center },
+                }},
+                new TextBlock { Text = "Click to install", Foreground = (Brush)FindResource("TextFaint"), FontSize = 11, Margin = new Thickness(18, 2, 0, 0) },
+            }
+        };
+        UpdateBanner.Visibility = Visibility.Visible;
+    }
+
+    private void UpdateBanner_Click(object sender, RoutedEventArgs e)
+    {
+        if (PendingUpdate == null) return;
+        UpdateDialog.Show(this, PendingUpdate, _updater);
+        var s = App.State.Settings;
+        if (s.SkippedUpdateVersion == PendingUpdate.Tag)
+        {
+            UpdateBanner.Visibility = Visibility.Collapsed;
+            PendingUpdate = null;
+        }
+    }
 
     // ── Remember window size/position between sessions ──
     private void RestoreWindowBounds()
@@ -50,7 +110,6 @@ public partial class MainWindow : Window
     {
         var s = App.State.Settings;
         s.WindowMaximized = WindowState == WindowState.Maximized;
-        // RestoreBounds gives the normal (un-maximized) rectangle, so we always store a usable size.
         var b = WindowState == WindowState.Normal ? new Rect(Left, Top, ActualWidth, ActualHeight) : RestoreBounds;
         if (b.Width > 0 && b.Height > 0)
         {
@@ -62,29 +121,14 @@ public partial class MainWindow : Window
         App.State.Save();
     }
 
-    /// <summary>True if a decent chunk of the window would land on a visible monitor.</summary>
     private static bool IsOnScreen(double left, double top, double width, double height)
     {
         var vx = SystemParameters.VirtualScreenLeft;
         var vy = SystemParameters.VirtualScreenTop;
         var vw = SystemParameters.VirtualScreenWidth;
         var vh = SystemParameters.VirtualScreenHeight;
-        // Require the title-bar area to be within the virtual desktop.
         return left + width > vx + 80 && left < vx + vw - 80 &&
                top >= vy - 1 && top < vy + vh - 40;
-    }
-
-    private static string AppVersion
-    {
-        get
-        {
-            var asm = Assembly.GetExecutingAssembly();
-            // <Version> flows to InformationalVersion (may carry a +git suffix); fall back to the file version.
-            var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-            if (!string.IsNullOrWhiteSpace(info))
-                return info.Split('+')[0];
-            return asm.GetName().Version?.ToString() ?? "0.0.0";
-        }
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -121,7 +165,6 @@ public partial class MainWindow : Window
         NavPanel.Children.Add(btn);
     }
 
-    // Icon + label row; foreground is left unset so it inherits the button's (active = accent).
     private static StackPanel NavContent(PackIconRemixIconKind icon, string label)
     {
         var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };

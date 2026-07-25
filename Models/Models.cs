@@ -192,6 +192,7 @@ public class AppSettings
     // Updater
     public bool CheckForUpdates { get; set; } = true;
     public string? SkippedUpdateVersion { get; set; }
+    public DateTime? LastUpdateCheckUtc { get; set; }
 
     // Main window bounds, remembered between sessions.
     public double WindowWidth { get; set; } = 1240;
