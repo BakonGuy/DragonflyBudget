@@ -37,7 +37,9 @@ public class BankAccount
     // v1.1: account kind + credit-card fields.
     public AccountType Type { get; set; } = AccountType.Bank;
     public decimal CreditLimit { get; set; }         // credit cards only
-    public bool ShowInRepayment { get; set; }        // surface this card on the Repayment screen
+    // Opt-out, not opt-in: a card belongs on the Repayment screen unless the user says otherwise.
+    // Files written before this default flipped hold an explicit false; a migration backfills them.
+    public bool ShowInRepayment { get; set; } = true; // surface this card on the Repayment screen
 
     // v1.1: <see cref="Balance"/> is the last value the user entered (the baseline). The displayed
     // balance is this minus linked bills paid since this date (see BudgetService.EffectiveBalance).

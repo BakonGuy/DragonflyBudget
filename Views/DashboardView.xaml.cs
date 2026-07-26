@@ -244,7 +244,7 @@ public partial class DashboardView : UserControl
         {
             var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             decimal bal = B.EffectiveBalance(card);
@@ -254,14 +254,13 @@ public partial class DashboardView : UserControl
                 nameCol.Children.Add(new TextBlock { Text = $"limit {Fmt.Money(card.CreditLimit)}", Foreground = Res("TextFaint"), FontSize = 11.5 });
             Place(row, nameCol, 0, 0);
 
-            var balTb = new TextBlock
-            {
-                Text = Fmt.Money(bal),
-                Foreground = bal > 0 ? Res("Bad") : Res("Text"),
-                FontWeight = FontWeights.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(8, 0, 8, 0),
-            };
+            // Editable, exactly like a bank row: typing sets the baseline via SetBalance and stamps
+            // LastUserBalanceDate, so linked payments before that date stop being replayed.
+            var balTb = MakeEdit(Fmt.Money(bal), null, left: false,
+                commit: t => { B.SetBalance(card, ParseMoney(t), BalanceSource.Manual); Save(); }, formatMoney: true);
+            balTb.Foreground = bal > 0 ? Res("Bad") : Res("Text");
+            balTb.FontWeight = FontWeights.SemiBold;
+            balTb.Margin = new Thickness(8, 0, 0, 0);
             Place(row, balTb, 0, 1);
 
             var actions = new StackPanel { Orientation = Orientation.Horizontal };

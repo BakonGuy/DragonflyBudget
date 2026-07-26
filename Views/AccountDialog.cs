@@ -27,7 +27,7 @@ public static class AccountDialog
         {
             Style = St("Check"),
             Content = "Show this card on the Repayment screen",
-            IsChecked = a?.ShowInRepayment ?? false,
+            IsChecked = a?.ShowInRepayment ?? true,
         };
 
         dlg.Add("Name", name);
