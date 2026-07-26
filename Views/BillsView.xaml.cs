@@ -34,8 +34,6 @@ public partial class BillsView : UserControl
         var rows = BudgetService.SortBills(B.BillsFor(S.Month), pref);
         bool manual = pref.Key == "manual";
         var s = B.Summarize(S.Month);
-        var today = DateOnly.FromDateTime(DateTime.Today);
-        var soon = today.AddDays(7);
 
         var stats = new UniformGrid { Rows = 1, Margin = new Thickness(0, 0, 0, 20) };
         AddSpaced(stats, StatCard("Total monthly", Fmt.Money(s.TotalMonthlyBills), ""));
@@ -52,6 +50,61 @@ public partial class BillsView : UserControl
 
         Body.Children.Add(SortBar("bills", "date"));
 
+        // The screen is stacked sections of the same kind of thing, not one table. A card-payment
+        // bill is an ordinary bill in every way except which section it lands in, so it is filtered
+        // out of Bills and listed under Credit Cards instead — never both.
+        var billRows = rows.Where(r => !IsCardPayment(r)).ToList();
+        var cardRows = rows.Where(IsCardPayment).ToList();
+
+        var tables = new List<Grid>();
+        if (billRows.Count > 0)
+        {
+            var t = BuildTable(billRows, manual);
+            tables.Add(t);
+            // The bills table only needs naming once there's a second section to tell it apart from;
+            // on its own it is the screen, and the page header already says so.
+            if (cardRows.Count > 0)
+            {
+                var panel = new StackPanel();
+                panel.Children.Add(SectionHeader(PackIconRemixIconKind.BillFill, "Bills"));
+                panel.Children.Add(Card(t));
+                Body.Children.Add(panel);
+            }
+            else Body.Children.Add(Card(t));
+        }
+        if (cardRows.Count > 0)
+        {
+            var t = BuildTable(cardRows, manual: false);
+            tables.Add(t);
+            var panel = new StackPanel { Margin = new Thickness(0, 18, 0, 0) };
+            panel.Children.Add(SectionHeader(PackIconRemixIconKind.BankCardFill, "Credit Cards"));
+            panel.Children.Add(Card(t));
+            Body.Children.Add(panel);
+        }
+
+        // One saved layout for every section: same columns stacked down the screen have to line up,
+        // and dragging a divider in either one moves it in both.
+        // No handle at column 2: DUE is left-aligned and AMOUNT right-aligned, so that boundary is a
+        // gap between two blocks of content rather than an edge either of them sits against.
+        // SaveQuiet, not Save: a width change must not raise DataChanged and rebuild these tables —
+        // that is what used to throw away the drag the moment it was dropped.
+        // Managed (fixed, saved) columns are 2-4. Column 0 flexes, column 1 is Auto and column 5
+        // sizes itself to the buttons, so none of those has a width worth storing.
+        ColumnResize.Apply(tables, "bills", S.Settings, S.SaveQuiet, cols: new[] { 2, 3, 4 }, handleCols: new[] { 1, 3, 4 });
+    }
+
+    /// <summary>A card payment sits in its own section; anything else is an ordinary bill.</summary>
+    private bool IsCardPayment(BillRow r) =>
+        r.Bill.PaysAccountId != null && B.FindAccount(r.Bill.PaysAccountId)?.Type == AccountType.CreditCard;
+
+    /// <summary>
+    /// One section's table. Every section has the same columns and the same actions — only the rows
+    /// differ — so this is the single place a bill row is built.
+    /// </summary>
+    private Grid BuildTable(List<BillRow> rows, bool manual)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var soon = today.AddDays(7);
         var table = new Grid();
         // Exactly one flexible column, and it is the first one. Every other column is a fixed pixel
         // width, so dragging a divider moves that divider and nothing else, and resizing the window
@@ -156,23 +209,16 @@ public partial class BillsView : UserControl
             {
                 acts.Children.Add(Space(Btn("Undo", "BtnGhost", (_, _) => { r.Status.Status = PayStatus.Unpaid; r.Status.AmountPaid = 0; r.Status.PaidDate = null; r.Status.UserSet = true; Save(); })));
             }
-            acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditBill(r.Bill), tooltip: "Edit")));
+            // A card payment's name, amount and due day are the card's, so editing it has to go to
+            // the card — the generic bill dialog would fight AccountDialog over the same fields.
+            var billRow = r;
+            acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost",
+                (_, _) => EditBillOrCard(billRow), tooltip: "Edit")));
             Place(table, acts, row, 5);
         }
 
         if (manual) DragReorder.AttachTable(table, markers, MoveBill);
-        // No handle at column 2: DUE is left-aligned and AMOUNT right-aligned, so that boundary is a
-        // gap between two blocks of content rather than an edge either of them sits against.
-        // SaveQuiet, not Save: a width change must not raise DataChanged and rebuild this table —
-        // that is what used to throw away the drag the moment it was dropped.
-        // Managed (fixed, saved) columns are 2-4. Column 0 flexes, column 1 is Auto and column 5
-        // sizes itself to the buttons, so none of those has a width worth storing.
-        // No handle at column 2: DUE and AMOUNT share one region with no divider between them. DUE
-        // being Auto is what splits it — the date takes exactly what it needs and AMOUNT gets all
-        // the rest, so the boundary sits where a divider would have been dragged to anyway, and
-        // neither column can starve the other.
-        ColumnResize.Apply(table, "bills", S.Settings, S.SaveQuiet, cols: new[] { 2, 3, 4 }, handleCols: new[] { 1, 3, 4 });
-        Body.Children.Add(Card(table));
+        return table;
     }
 
     // ── partial payment dialog ──
@@ -187,17 +233,27 @@ public partial class BillsView : UserControl
             SelectedDate = (r.Status.PaidDate ?? r.DueDate).ToDateTime(TimeOnly.MinValue),
             Height = 36, FontSize = 14,
         };
+        // A card payment's amount is the card's minimum, recomputed from the balance every time it's
+        // shown. Letting this month override it would desync the two with no way to tell which is
+        // right, so the override is simply not offered — pay a different amount and it's a partial.
+        bool cardPayment = IsCardPayment(r);
         dlg.Add($"Amount paid so far (of {Fmt.Money(r.Amount)})", paid, full: false);
-        dlg.Add("This month's amount (override)", over, full: false, rightColumn: true);
+        if (!cardPayment) dlg.Add("This month's amount (override)", over, full: false, rightColumn: true);
         dlg.Add("Paid on", paidOn, full: false);
-        dlg.AddHint("Overriding the amount only changes this one month. The paid date defaults to the due date.");
+        dlg.AddHint(cardPayment
+            ? "This card payment's amount follows the card's minimum. The paid date defaults to the due date."
+            : "Overriding the amount only changes this one month. The paid date defaults to the due date.");
         dlg.OnValidate(() => true);
         if (dlg.ShowDialog() == true)
         {
             var st = r.Status;
-            decimal ov = over.Value;
-            st.AmountOverride = ov == r.Bill.Amount ? null : ov;
-            decimal amount = st.AmountOverride ?? r.Bill.Amount;
+            decimal live = B.BillAmount(r.Bill);
+            if (!cardPayment)
+            {
+                decimal ov = over.Value;
+                st.AmountOverride = ov == live ? null : ov;
+            }
+            decimal amount = st.AmountOverride ?? live;
             st.AmountPaid = paid.Value;
             st.Status = st.AmountPaid <= 0 ? PayStatus.Unpaid : st.AmountPaid >= amount ? PayStatus.Paid : PayStatus.Partial;
             var pd = paidOn.SelectedDate.HasValue ? DateOnly.FromDateTime(paidOn.SelectedDate.Value) : (DateOnly?)null;
@@ -205,6 +261,14 @@ public partial class BillsView : UserControl
             st.UserSet = true;
             Save();
         }
+    }
+
+    /// <summary>Edit a bill — or, for a card payment, the card the bill is generated from.</summary>
+    private void EditBillOrCard(BillRow r)
+    {
+        var card = IsCardPayment(r) ? B.FindAccount(r.Bill.PaysAccountId) : null;
+        if (card == null) { EditBill(r.Bill); return; }
+        AccountDialog.Show(Window.GetWindow(this)!, B, card, Save);
     }
 
     // ── bill edit dialog ──

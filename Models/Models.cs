@@ -37,8 +37,8 @@ public class BankAccount
     // v1.1: account kind + credit-card fields.
     public AccountType Type { get; set; } = AccountType.Bank;
     public decimal CreditLimit { get; set; }         // credit cards only
-    // Opt-out, not opt-in: a card belongs on the Repayment screen unless the user says otherwise.
-    // Files written before this default flipped hold an explicit false; a migration backfills them.
+    // Opt-out, not opt-in: a new card belongs on the Repayment screen unless the user says
+    // otherwise. Existing files hold an explicit value and are intentionally left alone.
     public bool ShowInRepayment { get; set; } = true; // surface this card on the Repayment screen
 
     // v1.1: <see cref="Balance"/> is the last value the user entered (the baseline). The displayed
@@ -49,6 +49,12 @@ public class BankAccount
     public decimal AprPercent { get; set; }
     public decimal MonthlyPayment { get; set; }
     public int GoalMonths { get; set; } = 12;
+
+    // Card statement terms. The minimum payment is the industry-standard "greater of X% or $Y",
+    // computed by BudgetService.MinimumPayment — never stored, so it can't go stale after a charge.
+    public int DueDay { get; set; } = 1;               // payment due date (day of month), 1-31
+    public decimal MinPaymentPercent { get; set; }     // e.g. 2 = 2% of the balance
+    public decimal MinPaymentFloor { get; set; }       // e.g. 25 — the "or $25, whichever is greater"
 }
 
 /// <summary>
@@ -82,6 +88,13 @@ public class Bill
     public Schedule? Repeat { get; set; }
     public Guid? AccountId { get; set; }            // structured link to a BankAccount/card
     public int SortOrder { get; set; }              // manual ordering
+
+    // The other direction of money. AccountId is what the bill is paid *from* (paying a bill drawn
+    // on a card raises what that card owes); PaysAccountId is the account this payment pays *down*.
+    // A card-payment bill sets both: AccountId = the funding bank, PaysAccountId = the card.
+    // A card payment's amount is the card's minimum, which changes with every charge, so Amount is
+    // left at 0 and read as "use the computed minimum at render time" — see BudgetService.BillAmount.
+    public Guid? PaysAccountId { get; set; }
 }
 
 // Per-month state of a bill. Created lazily; never deleted, so history is kept.

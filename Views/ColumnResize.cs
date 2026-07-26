@@ -35,9 +35,19 @@ public static class ColumnResize
     /// <param name="handleCols">Which columns get a divider on their left edge.</param>
     public static void Apply(Grid table, string screen, AppSettings settings, Action save,
         IReadOnlyList<int> cols, IReadOnlyList<int> handleCols)
+        => Apply(new[] { table }, screen, settings, save, cols, handleCols);
+
+    /// <summary>
+    /// Several stacked tables of the same column shape, resized together under one saved layout.
+    /// Dragging a divider in any of them moves that column in all of them — adjacent tables with the
+    /// same columns have to stay aligned, and a per-table key would let them drift apart. The tables
+    /// must share the same column model; the first one defines it.
+    /// </summary>
+    public static void Apply(IReadOnlyList<Grid> tables, string screen, AppSettings settings, Action save,
+        IReadOnlyList<int> cols, IReadOnlyList<int> handleCols)
     {
-        var defs = table.ColumnDefinitions;
-        if (cols.Count == 0) return;
+        if (tables.Count == 0 || cols.Count == 0) return;
+        var defs = tables[0].ColumnDefinitions;
 
         var defaults = cols.Select(c => defs[c].Width).ToList();
         int flex = Enumerable.Range(0, defs.Count).FirstOrDefault(i => defs[i].Width.IsStar, -1);
@@ -58,44 +68,55 @@ public static class ColumnResize
             ratios = saved.ToList();
         }
 
-        int rows = Math.Max(1, table.RowDefinitions.Count);
-        foreach (int ci in handleCols)
+        foreach (var t in tables)
         {
-            if (ci <= 0 || ci >= defs.Count) continue;
-
-            // A divider resizes the nearest resizable column on each side, stepping over any Auto
-            // column in between. Those are sized by their own content and are not ours to move.
-            int right = Enumerable.Range(ci, defs.Count - ci).FirstOrDefault(i => cols.Contains(i), -1);
-            int left = Enumerable.Range(0, ci).Reverse().FirstOrDefault(i => cols.Contains(i) || i == flex, -1);
-            if (right < 0 || left < 0) continue;
-
-            AddDivider(table, defs, ci, left, right, flex, rows, persist: () =>
+            var tdefs = t.ColumnDefinitions;
+            int rows = Math.Max(1, t.RowDefinitions.Count);
+            foreach (int ci in handleCols)
             {
-                double space = Resizable();
-                if (space <= 0) return;
-                ratios = cols.Select(c => defs[c].ActualWidth / space).ToList();
-                settings.ColumnWidths[key] = ratios;
-                save();
-            }, reset: () =>
-            {
-                ratios = null;
-                settings.ColumnWidths.Remove(key);
-                Layout();
-                save();
-            });
+                if (ci <= 0 || ci >= tdefs.Count) continue;
+
+                // A divider resizes the nearest resizable column on each side, stepping over any Auto
+                // column in between. Those are sized by their own content and are not ours to move.
+                int right = Enumerable.Range(ci, tdefs.Count - ci).FirstOrDefault(i => cols.Contains(i), -1);
+                int left = Enumerable.Range(0, ci).Reverse().FirstOrDefault(i => cols.Contains(i) || i == flex, -1);
+                if (right < 0 || left < 0) continue;
+
+                var dragged = t;
+                AddDivider(t, tdefs, ci, left, right, flex, rows, persist: () =>
+                {
+                    // Measured from the table actually dragged, then pushed to all of them, so the
+                    // others catch up the moment the drag ends rather than at the next rebuild.
+                    double space = Resizable(dragged);
+                    if (space <= 0) return;
+                    ratios = cols.Select(c => dragged.ColumnDefinitions[c].ActualWidth / space).ToList();
+                    settings.ColumnWidths[key] = ratios;
+                    LayoutAll();
+                    save();
+                }, reset: () =>
+                {
+                    ratios = null;
+                    settings.ColumnWidths.Remove(key);
+                    LayoutAll();
+                    save();
+                });
+            }
+            t.SizeChanged += (_, e) => { if (e.WidthChanged) Layout(t); };
         }
 
-        Layout();
-        table.SizeChanged += (_, e) => { if (e.WidthChanged) Layout(); };
+        LayoutAll();
+
+        void LayoutAll() { foreach (var t in tables) Layout(t); }
 
         // Space the managed columns and the flex column share: everything except the Auto columns,
         // which have already measured themselves against their content.
-        double Resizable()
+        double Resizable(Grid t)
         {
-            double avail = table.ActualWidth;
+            var tdefs = t.ColumnDefinitions;
+            double avail = t.ActualWidth;
             if (avail <= 0) return 0;
-            for (int i = 0; i < defs.Count; i++)
-                if (i != flex && !cols.Contains(i)) avail -= defs[i].ActualWidth;
+            for (int i = 0; i < tdefs.Count; i++)
+                if (i != flex && !cols.Contains(i)) avail -= tdefs[i].ActualWidth;
             return avail;
         }
 
@@ -103,14 +124,15 @@ public static class ColumnResize
         // set is preserved as a proportion, so this both restores their layout and keeps the table
         // inside its bounds — the widths are derived from the available width, never independent
         // of it, which is what makes overflow impossible rather than merely unlikely.
-        void Layout()
+        void Layout(Grid t)
         {
-            double space = Resizable();
+            var tdefs = t.ColumnDefinitions;
+            double space = Resizable(t);
             if (space <= 0) return;
 
             ratios ??= defaults.Select(d => d.Value / space).ToList();
 
-            double flexMin = flex >= 0 ? Math.Max(defs[flex].MinWidth, MinGap) : 0;
+            double flexMin = flex >= 0 ? Math.Max(tdefs[flex].MinWidth, MinGap) : 0;
             double budget = Math.Max(MinGap * cols.Count, space - flexMin);
 
             var px = ratios.Select(r => Math.Max(MinGap, r * space)).ToList();
@@ -122,7 +144,7 @@ public static class ColumnResize
             }
 
             for (int k = 0; k < cols.Count; k++)
-                defs[cols[k]].Width = new GridLength(px[k]);
+                tdefs[cols[k]].Width = new GridLength(px[k]);
         }
     }
 

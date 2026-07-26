@@ -119,7 +119,10 @@ public class DataStore
             catch { /* backup is best-effort */ }
         }
 
-        MigrationV1ToV2.Apply(Data);
+        // One step at a time, stamping after each, so a file several versions behind gets every
+        // migration it's missing. A single unconditional Apply + stamp would mark a v1 file current
+        // while only the hop it happened to call had run.
+        if (Data.Version < 2) { MigrationV1ToV2.Apply(Data); Data.Version = 2; }
 
         Data.Version = CurrentSchemaVersion;
         Save();

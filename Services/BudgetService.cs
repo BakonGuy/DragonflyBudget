@@ -104,7 +104,7 @@ public class BudgetService(DataStore store)
             .Select(b =>
             {
                 var s = GetBillStatus(b, month);
-                var amt = s.AmountOverride ?? b.Amount;
+                var amt = s.AmountOverride ?? BillAmount(b);
                 var day = Math.Clamp(s.DueDayOverride ?? b.DueDay, 1, days);
                 var due = new DateOnly(y, m, day);
                 var (eff, autoPaid) = EffectiveStatus(b, s, due, today);
@@ -243,11 +243,14 @@ public class BudgetService(DataStore store)
         RecordBalance(a.Id, newBalance, DateOnly.FromDateTime(DateTime.Today), source);
     }
 
-    /// <summary>Linked bill payments (date, amount) for an account — effectively-paid bills with a resolved paid date.</summary>
-    public IEnumerable<(DateOnly Date, decimal Amount)> LinkedPayments(Guid accountId)
+    /// <summary>
+    /// Money a bill moves, per month it was effectively paid: (date, amount). Shared by both link
+    /// directions — only the set of bills differs, never the paid/partial/date resolution.
+    /// </summary>
+    private IEnumerable<(DateOnly Date, decimal Amount)> PaymentsOf(IEnumerable<Bill> bills)
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
-        foreach (var bill in Data.Bills.Where(b => b.AccountId == accountId))
+        foreach (var bill in bills)
         {
             foreach (var st in Data.BillStatuses.Where(s => s.BillId == bill.Id))
             {
@@ -256,22 +259,86 @@ public class BudgetService(DataStore store)
                 var due = new DateOnly(y, m, day);
                 var (eff, _) = EffectiveStatus(bill, st, due, today);
                 if (eff is not (PayStatus.Paid or PayStatus.Partial)) continue;
-                decimal amt = eff == PayStatus.Partial ? st.AmountPaid : st.AmountOverride ?? bill.Amount;
+                decimal amt = eff == PayStatus.Partial ? st.AmountPaid : st.AmountOverride ?? SettledAmount(bill, st);
                 yield return (st.PaidDate ?? due, amt);
             }
         }
     }
 
     /// <summary>
-    /// The balance to display: the user's last entered value minus (bank) or plus (card) any linked
-    /// bills paid after that entry. Nothing is written — the stored balance stays the user's baseline.
+    /// What a settled (paid) bill actually moved. For an ordinary bill that's its amount; for a card
+    /// payment it's what was recorded as paid, because a past payment is a fixed fact and must not
+    /// float with today's minimum.
+    ///
+    /// This deliberately never calls <see cref="BillAmount"/>: a card payment's live amount comes
+    /// from <see cref="MinimumPayment"/>, which reads <see cref="EffectiveBalance"/>, which is what
+    /// calls this — going the other way would recurse forever. The autopay fallback works off the
+    /// card's stored baseline for the same reason.
+    /// </summary>
+    private decimal SettledAmount(Bill bill, BillMonthStatus st)
+    {
+        if (bill.PaysAccountId == null) return bill.Amount;
+        if (st.AmountPaid > 0) return st.AmountPaid;
+        if (bill.Amount > 0) return bill.Amount;
+        // Auto-paid card payment nobody typed an amount for: fall back to the minimum implied by the
+        // card's last user-entered balance.
+        var card = FindAccount(bill.PaysAccountId);
+        return card == null ? 0 : MinimumPaymentOn(card, card.Balance);
+    }
+
+    /// <summary>Bills drawn *on* this account — money out of a bank, or a new charge on a card.</summary>
+    public IEnumerable<(DateOnly Date, decimal Amount)> ChargesAgainst(Guid accountId) =>
+        PaymentsOf(Data.Bills.Where(b => b.AccountId == accountId));
+
+    /// <summary>Bills that pay this account *down* — a card or loan payment reducing what's owed.</summary>
+    public IEnumerable<(DateOnly Date, decimal Amount)> PaymentsToward(Guid accountId) =>
+        PaymentsOf(Data.Bills.Where(b => b.PaysAccountId == accountId));
+
+    /// <summary>Bills drawn on this account. Kept for callers that predate the two-direction split.</summary>
+    public IEnumerable<(DateOnly Date, decimal Amount)> LinkedPayments(Guid accountId) => ChargesAgainst(accountId);
+
+    /// <summary>
+    /// The balance to display: the user's last entered value, moved by every linked bill paid after
+    /// that entry — charges against it, and payments toward it in the opposite direction. Nothing is
+    /// written; the stored balance stays the user's baseline.
     /// </summary>
     public decimal EffectiveBalance(BankAccount a)
     {
-        decimal since = LinkedPayments(a.Id).Where(p => p.Date > a.LastUserBalanceDate).Sum(p => p.Amount);
+        decimal charges = ChargesAgainst(a.Id).Where(p => p.Date > a.LastUserBalanceDate).Sum(p => p.Amount);
+        decimal paid = PaymentsToward(a.Id).Where(p => p.Date > a.LastUserBalanceDate).Sum(p => p.Amount);
         // A bill paid on a card increases what's owed; on a bank account it reduces the balance.
+        // A payment toward an account always reduces it: a card's debt falls by what you paid it.
         // Cards are still kept separate from bank balances in the summary (own section, not funds).
-        return a.Type == AccountType.CreditCard ? a.Balance + since : a.Balance - since;
+        return a.Type == AccountType.CreditCard ? a.Balance + charges - paid : a.Balance - charges - paid;
+    }
+
+    /// <summary>
+    /// A credit card's minimum payment: the greater of the percentage and the floor, but never more
+    /// than the balance itself. Always derived from <see cref="EffectiveBalance"/> so it stays right
+    /// the moment a charge or payment lands — nothing about it is stored. Returns 0 for a card that
+    /// isn't in debt, and for a card with no terms entered.
+    /// </summary>
+    public decimal MinimumPayment(BankAccount card) => MinimumPaymentOn(card, EffectiveBalance(card));
+
+    /// <summary>The minimum-payment rule applied to a given balance. See <see cref="MinimumPayment"/>.</summary>
+    public static decimal MinimumPaymentOn(BankAccount card, decimal balance)
+    {
+        if (balance <= 0) return 0;
+        decimal pct = card.MinPaymentPercent > 0 ? balance * card.MinPaymentPercent / 100m : 0;
+        decimal min = Math.Max(card.MinPaymentFloor, pct);
+        return Math.Round(Math.Min(balance, min), 2, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>
+    /// A bill's current amount. Ordinary bills use their stored <see cref="Bill.Amount"/>; a card
+    /// payment with no amount set means "the card's minimum", computed now rather than stored, so it
+    /// can't go stale the moment a charge lands.
+    /// </summary>
+    public decimal BillAmount(Bill b)
+    {
+        if (b.PaysAccountId == null || b.Amount > 0) return b.Amount;
+        var card = FindAccount(b.PaysAccountId);
+        return card == null ? b.Amount : MinimumPayment(card);
     }
 
     public record BalancePoint(DateOnly Date, decimal Balance, bool IsManual);
@@ -288,7 +355,13 @@ public class BudgetService(DataStore store)
             events.Add((a.LastUserBalanceDate, true, a.Balance));
         else
             events.AddRange(manuals.Select(e => (e.Date, true, e.Balance)));
-        events.AddRange(LinkedPayments(a.Id).Select(p => (p.Date, false, p.Amount)));
+        // Two payment streams. Non-manual events carry the signed delta they apply to the running
+        // balance, so the sign rule lives here once and matches EffectiveBalance exactly: a charge
+        // raises a card and lowers a bank; a payment toward an account always lowers it. Without the
+        // second stream the chart would contradict the account row, which does subtract them.
+        bool card = a.Type == AccountType.CreditCard;
+        events.AddRange(ChargesAgainst(a.Id).Select(p => (p.Date, false, card ? p.Amount : -p.Amount)));
+        events.AddRange(PaymentsToward(a.Id).Select(p => (p.Date, false, -p.Amount)));
 
         // Manual entries first on ties, so a same-day user value wins over that day's payments.
         var ordered = events.OrderBy(e => e.Date).ThenByDescending(e => e.Manual).ToList();
@@ -308,7 +381,7 @@ public class BudgetService(DataStore store)
             {
                 if (!started) continue;
                 if (ev.Date <= baseDate) continue; // user value for that day takes precedence
-                running += a.Type == AccountType.CreditCard ? ev.Val : -ev.Val;
+                running += ev.Val;                 // already signed above
                 points.Add(new BalancePoint(ev.Date, running, false));
             }
         }
@@ -378,10 +451,18 @@ public class BudgetService(DataStore store)
         decimal pendingOut = pending.Where(p => !p.Status.Cleared && p.Item.Amount < 0).Sum(p => p.Item.Amount);
 
         // A bill paid on a credit card doesn't touch the bank — it adds to what's owed on the card.
-        bool PaidOnCard(BillRow r) => FindAccount(r.Bill.AccountId)?.Type == AccountType.CreditCard;
+        // A card *payment* is the opposite and must be excluded: it's bank money out and card debt
+        // down, so counting it as a new charge would inflate what the card is projected to owe.
+        bool PaidOnCard(BillRow r) => r.Bill.PaysAccountId == null
+                                   && FindAccount(r.Bill.AccountId)?.Type == AccountType.CreditCard;
         decimal unpaidCard = bills.Where(b => b.Remaining > 0 && PaidOnCard(b)).Sum(b => b.Remaining);
         decimal unpaidBank = totalUnpaid - unpaidCard;
         decimal dueSoonBank = dueSoonRows.Where(b => !PaidOnCard(b)).Sum(b => b.Remaining);
+
+        // Pending card payments will lower what's owed by the time they're made.
+        decimal cardPaymentsDue = bills.Where(b => b.Remaining > 0 && b.Bill.PaysAccountId != null
+                                              && FindAccount(b.Bill.PaysAccountId)?.Type == AccountType.CreditCard)
+                                       .Sum(b => b.Remaining);
 
         return new MonthSummary(
             BankTotal: bank, Cash: Data.CashOnHand, TotalFunds: funds, CreditTotal: credit,
@@ -393,7 +474,7 @@ public class BudgetService(DataStore store)
             UnpaidCount: bills.Count(b => b.Remaining > 0),
             DueSoonCount: dueSoonRows.Count,
             UnpaidFromBank: unpaidBank, UnpaidFromCard: unpaidCard,
-            ProjectedCardOwed: credit + unpaidCard);
+            ProjectedCardOwed: credit + unpaidCard - cardPaymentsDue);
     }
 
     // ---- repayment math ----

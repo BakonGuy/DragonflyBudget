@@ -129,7 +129,8 @@ public class EditDialog : Window
         return stack;
     }
 
-    public void AddHint(string text)
+    /// <summary>Returns the hint so callers can hide it or rewrite its text as fields change.</summary>
+    public TextBlock AddHint(string text)
     {
         if (_leftHalfOpen) { _row++; _leftHalfOpen = false; }
         var tb = new TextBlock { Text = text, Style = St("Faint"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) };
@@ -138,6 +139,7 @@ public class EditDialog : Window
         _fields.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _fields.Children.Add(tb);
         _row++;
+        return tb;
     }
 
     /// <summary>A small section divider/header to group related fields.</summary>

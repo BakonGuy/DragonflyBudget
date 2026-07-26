@@ -96,14 +96,16 @@ public partial class AccountsView : UserControl
             var cardPanel = new StackPanel { Margin = new Thickness(0, 18, 0, 0) };
             cardPanel.Children.Add(SectionHeader(PackIconRemixIconKind.BankCardFill, "Credit Cards", Btn("+ Add Card", "BtnSm", (_, _) => AddAccount(AccountType.CreditCard))));
             var table = new Grid();
-            foreach (var w in new[] { new GridLength(1, GridUnitType.Star), MoneyCol, MoneyCol, MoneyCol, new GridLength(1, GridUnitType.Star), GridLength.Auto })
+            foreach (var w in new[] { new GridLength(1, GridUnitType.Star), MoneyCol, MoneyCol, MoneyCol, MoneyCol, new GridLength(58), new GridLength(1, GridUnitType.Star), GridLength.Auto })
                 table.ColumnDefinitions.Add(new ColumnDefinition { Width = w });
             AddHeader(table, "CARD", 0);
             AddHeader(table, "BALANCE", 1, right: true);
             AddHeader(table, "LIMIT", 2, right: true);
             AddHeader(table, "AVAILABLE", 3, right: true);
-            AddHeader(table, "UTILIZATION", 4);
-            AddHeader(table, "", 5);
+            AddHeader(table, "MIN PAYMENT", 4, right: true);
+            AddHeader(table, "DUE", 5, right: true);
+            AddHeader(table, "UTILIZATION", 6);
+            AddHeader(table, "", 7);
 
             foreach (var card in cards)
             {
@@ -125,18 +127,23 @@ public partial class AccountsView : UserControl
                 var availColor = avail > 0 ? Res("Good") : Res("Bad");
                 Place(table, RightText(Fmt.Money(avail), availColor), row, 3);
 
+                // Derived from the balance and the card's terms — never stored, so it can't go stale.
+                decimal min = B.MinimumPayment(card);
+                Place(table, RightText(min > 0 ? Fmt.Money(min) : "—", min > 0 ? Res("Text") : Res("TextDim")), row, 4);
+                Place(table, RightText(min > 0 ? Fmt.Ordinal(card.DueDay) : "—", Res("TextDim")), row, 5);
+
                 var track = new Border { Background = Res("Bg"), CornerRadius = new CornerRadius(2), Height = 8, Margin = new Thickness(10, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center, ClipToBounds = true };
                 var fill = new Border { Background = pct > 80 ? Res("Bad") : pct > 50 ? Res("Warn") : Res("AccentStrong"), CornerRadius = new CornerRadius(2), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
                 track.Child = fill;
                 var p = pct;
                 track.Loaded += (_, _) => fill.Width = track.ActualWidth * p / 100.0;
                 track.SizeChanged += (_, _) => fill.Width = track.ActualWidth * p / 100.0;
-                Place(table, track, row, 4);
+                Place(table, track, row, 6);
 
                 var acts = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 4, 6) };
                 acts.Children.Add(Space(IconButton(PackIconRemixIconKind.LineChartFill, "BtnGhost", (_, _) => new BalanceHistoryWindow(win, B, card).ShowDialog(), tooltip: "Balance history")));
                 acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditAccount(card), tooltip: "Edit")));
-                Place(table, acts, row, 5);
+                Place(table, acts, row, 7);
             }
             cardPanel.Children.Add(Card(table));
             Body.Children.Add(cardPanel);
@@ -235,7 +242,7 @@ public partial class AccountsView : UserControl
     {
         string name = string.IsNullOrWhiteSpace(acc.Name) ? "this account" : $"“{acc.Name}”";
         int points = B.Data.BalanceHistory.Count(e => e.AccountId == acc.Id);
-        int linkedBills = B.Data.Bills.Count(b => b.AccountId == acc.Id);
+        int linkedBills = B.Data.Bills.Count(b => b.AccountId == acc.Id || b.PaysAccountId == acc.Id);
 
         var parts = new List<string> { "the account" };
         if (points > 0) parts.Add($"{points} recorded balance point{(points == 1 ? "" : "s")}");
@@ -249,8 +256,11 @@ public partial class AccountsView : UserControl
                 confirmText: "Delete permanently", danger: true))
             return;
 
+        // Both link directions: what the bill is paid from, and what it pays down.
         foreach (var b in B.Data.Bills.Where(b => b.AccountId == acc.Id))
             b.AccountId = null;
+        foreach (var b in B.Data.Bills.Where(b => b.PaysAccountId == acc.Id))
+            b.PaysAccountId = null;
         B.Data.BalanceHistory.RemoveAll(e => e.AccountId == acc.Id);
         B.Data.Banks.RemoveAll(a => a.Id == acc.Id);
         Save();
