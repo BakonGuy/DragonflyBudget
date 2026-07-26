@@ -30,7 +30,12 @@ public partial class MainWindow : Window
         Navigate(0);
         Icon = DragonflyIcon.MakeIcon();
         BrandIcon.Source = DragonflyIcon.BuildMediumImage(DragonflyIcon.Accent);
+#if DEBUG
+        VersionText.Text = $"v{AppInfo.VersionString} - DEV";
+        VersionText.Foreground = (Brush)FindResource("Bad");
+#else
         VersionText.Text = $"v{AppInfo.VersionString}";
+#endif
         SettingsBtn.Content = NavContent(PackIconRemixIconKind.SettingsFill, "Settings");
 
         // Background auto-update check after window loads
