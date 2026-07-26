@@ -1,0 +1,18 @@
+<UserControl x:Class="Dragonfly.Views.PlanView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="32,26,32,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Margin="0,0,0,22">
+            <TextBlock Text="Payoff Plan" Style="{StaticResource H1}"/>
+            <TextBlock x:Name="SubText" Style="{StaticResource Sub}" Margin="0,3,0,0"
+                       Text="What to pay first, and what it gets you."/>
+        </StackPanel>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,20,24">
+            <StackPanel x:Name="Body"/>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

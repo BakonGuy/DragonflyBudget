@@ -204,6 +204,11 @@ public class AppSettings
     /// <summary>User-resized table column widths (px), keyed by screen name; aligned to resizable columns.</summary>
     public Dictionary<string, List<double>> ColumnWidths { get; set; } = new();
 
+    /// <summary>Payoff plan: what the user can put toward debt each month. 0 = just the minimums.</summary>
+    public decimal DebtBudget { get; set; }
+    /// <summary>Payoff plan: "avalanche" (least interest) or "snowball" (smallest balance first).</summary>
+    public string DebtStrategy { get; set; } = "avalanche";
+
     // Updater
     public bool CheckForUpdates { get; set; } = true;
     public string? SkippedUpdateVersion { get; set; }

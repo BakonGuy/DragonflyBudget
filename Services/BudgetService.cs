@@ -665,6 +665,62 @@ public class BudgetService(DataStore store)
         }
     }
 
+    // ---- payoff plan ----
+    /// <summary>
+    /// Every debt the app knows about, from all four places they can be tracked, as one list the
+    /// planner can do arithmetic on. Anything already cleared is left out — a paid-off debt isn't
+    /// part of a plan to pay off debt.
+    /// </summary>
+    public List<PayoffTarget> PayoffTargets()
+    {
+        var list = new List<PayoffTarget>();
+
+        foreach (var c in CreditCards())
+        {
+            decimal bal = EffectiveBalance(c);
+            if (bal <= 0) continue;
+            list.Add(new PayoffTarget(c.Id, "Credit card", c.Name, bal, c.AprPercent,
+                FixedPayment: 0, MinPercent: c.MinPaymentPercent, MinFloor: c.MinPaymentFloor,
+                Where: "Accounts"));
+        }
+
+        foreach (var l in ActiveLoans())
+        {
+            decimal bal = LoanBalance(l, CurrentMonth());
+            if (bal <= 0) continue;
+            list.Add(new PayoffTarget(l.Id, "Loan", l.Name, bal, l.AprPercent,
+                FixedPayment: l.MonthlyPayment, MinPercent: 0, MinFloor: 0, Where: "Bills"));
+        }
+
+        foreach (var d in Data.InterestDebts.Where(x => !x.Archived && x.Balance > 0))
+            list.Add(new PayoffTarget(d.Id, "Debt", d.Name, d.Balance, d.AprPercent,
+                FixedPayment: d.MonthlyPayment, MinPercent: 0, MinFloor: 0, Where: "Repayment"));
+
+        // Interest-free items are included, but with no rate they can never outrank anything that
+        // is costing money, so they settle at the end of the list on their own.
+        foreach (var d in Data.Debts.Where(x => !x.Archived && x.AmountLeft > 0))
+            list.Add(new PayoffTarget(d.Id, "No interest", d.Name, d.AmountLeft, 0,
+                FixedPayment: 0, MinPercent: 0, MinFloor: 0, Where: "Debts to Pay"));
+
+        return list;
+    }
+
+    /// <summary>
+    /// Debts that look like the same thing tracked twice — typically a card that is also an old
+    /// Repayment entry. Counting one debt twice makes every number on the plan wrong, so these are
+    /// surfaced rather than silently merged or ignored.
+    /// </summary>
+    public List<(PayoffTarget A, PayoffTarget B)> DuplicateTargets(IReadOnlyList<PayoffTarget> targets)
+    {
+        var dupes = new List<(PayoffTarget, PayoffTarget)>();
+        for (int i = 0; i < targets.Count; i++)
+            for (int j = i + 1; j < targets.Count; j++)
+                if (!string.IsNullOrWhiteSpace(targets[i].Name)
+                    && string.Equals(targets[i].Name.Trim(), targets[j].Name.Trim(), StringComparison.OrdinalIgnoreCase))
+                    dupes.Add((targets[i], targets[j]));
+        return dupes;
+    }
+
     // ---- repayment math ----
     public record Payoff(int Months, decimal TotalInterest, decimal FinalPayment, bool NeverPaysOff);
 

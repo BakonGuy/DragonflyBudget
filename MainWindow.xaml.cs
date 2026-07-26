@@ -146,6 +146,7 @@ public partial class MainWindow : Window
         AddNav(PackIconRemixIconKind.ShoppingBasketFill, "Budgets", () => new BudgetsView());
         AddNav(PackIconRemixIconKind.FileList3Fill, "Debts to Pay", () => new DebtsView());
         AddNav(PackIconRemixIconKind.PercentFill, "Repayment", () => new RepaymentView());
+        AddNav(PackIconRemixIconKind.FlashlightFill, "Payoff Plan", () => new PlanView());
     }
 
     private void AddNav(PackIconRemixIconKind icon, string label, Func<UserControl> factory)
