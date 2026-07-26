@@ -34,4 +34,9 @@ public class AppState
         Store.Save();
         DataChanged?.Invoke();
     }
+
+    /// <summary>Persist without raising <see cref="DataChanged"/>. For pure view preferences —
+    /// column widths and the like — where the screen already shows the change and a rebuild would
+    /// only throw away what the user just did.</summary>
+    public void SaveQuiet() => Store.Save();
 }

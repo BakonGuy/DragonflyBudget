@@ -53,8 +53,23 @@ public partial class BillsView : UserControl
         Body.Children.Add(SortBar("bills", "date"));
 
         var table = new Grid();
-        foreach (var w in new[] { new GridLength(1, GridUnitType.Star), new GridLength(120), MoneyCol, new GridLength(150), new GridLength(170), GridLength.Auto })
+        // Exactly one flexible column, and it is the first one. Every other column is a fixed pixel
+        // width, so dragging a divider moves that divider and nothing else, and resizing the window
+        // only ever changes BILL. Two flexible columns would mean each drag silently redistributed
+        // width to the other one — a column sliding on its own, nowhere near the divider grabbed.
+        // The fixed defaults are sized to the content they hold, so none of them carries slack.
+        var colWidths = new[]
+        {
+            Star(1),                 // BILL — free text; the one column that absorbs spare width
+            GridLength.Auto,         // DUE — exactly "Jul 26" plus an optional badge, never more
+            new GridLength(130),     // AMOUNT — takes the rest of the DUE|AMOUNT region
+            new GridLength(145),     // STATUS — a badge
+            new GridLength(185),     // ACCOUNT — free text, ellipsized when tight
+            GridLength.Auto,         // actions — the buttons' natural size
+        };
+        foreach (var w in colWidths)
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = w });
+        table.ColumnDefinitions[0].MinWidth = 120;   // the flex column still needs a floor
 
         AddHeader(table, "BILL", 0);
         AddHeader(table, "DUE", 1);
@@ -95,14 +110,19 @@ public partial class BillsView : UserControl
             Place(table, due, row, 1);
 
             // amount
-            var amtPanel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0), Opacity = op };
-            amtPanel.Children.Add(new TextBlock { Text = Fmt.Money(r.Amount), HorizontalAlignment = HorizontalAlignment.Right });
+            // Ellipsis, not clipping: a hard-clipped amount drops its leading digits and reads as a
+            // completely different (much smaller) number. Trimming keeps the significant end and
+            // shows plainly that the column is too narrow.
+            var amtPanel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 10, 0), Opacity = op };
+            amtPanel.Children.Add(new TextBlock { Text = Fmt.Money(r.Amount), HorizontalAlignment = HorizontalAlignment.Right, TextAlignment = TextAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = Fmt.Money(r.Amount) });
             if (r.Status.Status == PayStatus.Partial)
-                amtPanel.Children.Add(new TextBlock { Text = $"{Fmt.Money(r.Status.AmountPaid)} paid", Foreground = Res("Warn"), FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Right });
+                amtPanel.Children.Add(new TextBlock { Text = $"{Fmt.Money(r.Status.AmountPaid)} paid", Foreground = Res("Warn"), FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Right, TextAlignment = TextAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis });
             Place(table, amtPanel, row, 2);
 
             // status
-            var stCell = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
+            // 10px in from the divider on its left edge, matching the header padding and the other
+            // left-aligned cells; 6px clear of the divider on its right.
+            var stCell = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 6, 0) };
             stCell.Children.Add(r.AutoPaid
                 ? Badge("Auto-paid", "Accent", "Accent")
                 : r.Effective switch
@@ -141,8 +161,17 @@ public partial class BillsView : UserControl
         }
 
         if (manual) DragReorder.AttachTable(table, markers, MoveBill);
-        // Persist widths for cols 1–4; no handle between DUE (left-aligned) and AMOUNT (right-aligned).
-        ColumnResize.Apply(table, "bills", new[] { 1, 2, 3, 4 }, S.Settings, Save, handleCols: new[] { 1, 3, 4 });
+        // No handle at column 2: DUE is left-aligned and AMOUNT right-aligned, so that boundary is a
+        // gap between two blocks of content rather than an edge either of them sits against.
+        // SaveQuiet, not Save: a width change must not raise DataChanged and rebuild this table —
+        // that is what used to throw away the drag the moment it was dropped.
+        // Managed (fixed, saved) columns are 2-4. Column 0 flexes, column 1 is Auto and column 5
+        // sizes itself to the buttons, so none of those has a width worth storing.
+        // No handle at column 2: DUE and AMOUNT share one region with no divider between them. DUE
+        // being Auto is what splits it — the date takes exactly what it needs and AMOUNT gets all
+        // the rest, so the boundary sits where a divider would have been dragged to anyway, and
+        // neither column can starve the other.
+        ColumnResize.Apply(table, "bills", S.Settings, S.SaveQuiet, cols: new[] { 2, 3, 4 }, handleCols: new[] { 1, 3, 4 });
         Body.Children.Add(Card(table));
     }
 
@@ -288,7 +317,12 @@ public partial class BillsView : UserControl
     {
         if (g.RowDefinitions.Count == 0) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var b = new Border { BorderBrush = Res("BorderSoft"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(10, 8, 10, 8) };
-        b.Child = new TextBlock { Text = text, Foreground = Res("TextFaint"), FontSize = 11.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = right ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+        b.Child = new TextBlock
+        {
+            Text = text, Foreground = Res("TextFaint"), FontSize = 11.5, FontWeight = FontWeights.SemiBold,
+            HorizontalAlignment = right ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
         Grid.SetRow(b, 0); Grid.SetColumn(b, col); g.Children.Add(b);
     }
     private static void Place(Grid g, UIElement el, int row, int col)

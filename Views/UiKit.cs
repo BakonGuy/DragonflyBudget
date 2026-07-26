@@ -49,6 +49,10 @@ public static class UiKit
     /// </summary>
     public static GridLength MoneyCol => new(150);
 
+    /// <summary>A proportional column weight. Tables use these so they always fill the viewport
+    /// exactly — no horizontal overflow, and every column rescales when the window does.</summary>
+    public static GridLength Star(double weight) => new(weight, GridUnitType.Star);
+
     public static Border Card(UIElement child, bool accent = false, Thickness? margin = null) => new()
     {
         Style = St(accent ? "CardAccent" : "Card"),
