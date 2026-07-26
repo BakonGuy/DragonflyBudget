@@ -15,8 +15,11 @@
     <conv:NullToVisibilityConverter x:Key="NullVis"/>
 
     <!-- ── Typography ──────────────────────────────────────── -->
+    <!-- No Foreground setter here on purpose: an implicit style beats property inheritance, so it
+         would repaint every unstyled TextBlock — including the label a Button's ContentPresenter
+         generates — in Text, ignoring the owner's Foreground. Instead the default flows down by
+         inheritance from the window (and from each Popup root, which is its own tree). -->
     <Style TargetType="TextBlock">
-        <Setter Property="Foreground" Value="{StaticResource Text}"/>
         <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
@@ -74,9 +77,18 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
+                    <ControlTemplate.Resources>
+                        <!-- Font only: setting Foreground here would beat inheritance and
+                             strand the label on the TextBlock default (black). -->
+                        <Style TargetType="TextBlock">
+                            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+                            <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
+                        </Style>
+                    </ControlTemplate.Resources>
                     <Border x:Name="b" Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
+                            TextElement.Foreground="{TemplateBinding Foreground}"
                             CornerRadius="4" Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
@@ -297,6 +309,7 @@
                                PopupAnimation="Slide" MinWidth="{TemplateBinding ActualWidth}">
                             <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource BorderBrush}"
                                     BorderThickness="1" CornerRadius="4" Margin="0,4,0,0"
+                                    TextElement.Foreground="{StaticResource Text}"
                                     MaxHeight="{TemplateBinding MaxDropDownHeight}">
                                 <Border.Effect>
                                     <DropShadowEffect Color="#000000" BlurRadius="14" ShadowDepth="3" Opacity="0.5"/>
@@ -357,6 +370,7 @@
                                PopupAnimation="Slide" MinWidth="{TemplateBinding ActualWidth}">
                             <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource BorderBrush}"
                                     BorderThickness="1" CornerRadius="4" Margin="0,4,0,0"
+                                    TextElement.Foreground="{StaticResource Text}"
                                     MaxHeight="{TemplateBinding MaxDropDownHeight}">
                                 <Border.Effect>
                                     <DropShadowEffect Color="#000000" BlurRadius="14" ShadowDepth="3" Opacity="0.5"/>
@@ -434,7 +448,8 @@
                             <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True"
                                    StaysOpen="False">
                                 <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource BorderBrush}"
-                                        BorderThickness="1" CornerRadius="4" Padding="4" Margin="0,4,0,0">
+                                        BorderThickness="1" CornerRadius="4" Padding="4" Margin="0,4,0,0"
+                                        TextElement.Foreground="{StaticResource Text}">
                                     <Border.Effect>
                                         <DropShadowEffect Color="#000000" BlurRadius="14" ShadowDepth="3" Opacity="0.5"/>
                                     </Border.Effect>
@@ -723,7 +738,7 @@
                     <Setter Property="Background" Value="Transparent"/>
                     <Style.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="#26FFFFFF"/>
+                            <Setter Property="Background" Value="{StaticResource RowHover}"/>
                         </Trigger>
                     </Style.Triggers>
                 </Style>

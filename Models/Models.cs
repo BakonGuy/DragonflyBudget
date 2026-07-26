@@ -3,7 +3,7 @@ namespace Dragonfly.Models;
 public enum Recurrence { OneOff, Monthly }
 public enum PayStatus { Unpaid, Partial, Paid, Skipped }
 public enum AccountType { Bank, Cash, CreditCard }
-public enum AppTheme { Purple, GreyOrange }
+public enum AppTheme { Purple, GreyOrange, PurpleLight, GreyOrangeLight }
 public enum BalanceSource { Manual, MarkPaid, Autopay }
 
 /// <summary>

@@ -23,6 +23,7 @@ public class BalanceHistoryWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Width = 760; Height = 480;
         Background = Res("Panel");
+        Foreground = Res("Text");
 
         var pts = b.BalanceSeries(acc);
 
@@ -41,7 +42,7 @@ public class BalanceHistoryWindow : Window
         {
             root.Children.Add(Empty("No balance history yet. Update this account's balance, or mark linked bills paid, to build a history."));
             Content = root;
-            SourceInitialized += (_, _) => NativeTheme.ApplyDark(this);
+            SourceInitialized += (_, _) => NativeTheme.Apply(this);
             return;
         }
 
@@ -104,7 +105,7 @@ public class BalanceHistoryWindow : Window
         root.Children.Add(chart);
 
         Content = root;
-        SourceInitialized += (_, _) => NativeTheme.ApplyDark(this);
+        SourceInitialized += (_, _) => NativeTheme.Apply(this);
     }
 
     private static SKColor ToSk(WpfColor c) => new(c.R, c.G, c.B, c.A);

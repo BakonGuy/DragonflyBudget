@@ -134,7 +134,7 @@ public partial class MainWindow : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
-        NativeTheme.ApplyDark(this);
+        NativeTheme.Apply(this);
     }
 
     private void BuildNav()

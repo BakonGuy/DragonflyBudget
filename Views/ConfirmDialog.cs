@@ -17,6 +17,7 @@ public class ConfirmDialog : Window
         ResizeMode = ResizeMode.NoResize;
         WindowStyle = WindowStyle.SingleBorderWindow;
         Background = Res("Panel");
+        Foreground = Res("Text");
 
         var root = new DockPanel { Margin = new Thickness(24, 20, 24, 20) };
 
@@ -49,7 +50,7 @@ public class ConfirmDialog : Window
         });
 
         Content = root;
-        SourceInitialized += (_, _) => NativeTheme.ApplyDark(this);
+        SourceInitialized += (_, _) => NativeTheme.Apply(this);
     }
 
     /// <summary>Show a confirmation and return whether the user confirmed.</summary>

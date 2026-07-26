@@ -36,6 +36,7 @@ public class UpdateDialog : Window
         ResizeMode = ResizeMode.NoResize;
         WindowStyle = WindowStyle.SingleBorderWindow;
         Background = Res("Panel");
+        Foreground = Res("Text");
 
         _root = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
 
@@ -143,7 +144,7 @@ public class UpdateDialog : Window
         _root.Children.Add(btnRow);
 
         Content = _root;
-        SourceInitialized += (_, _) => NativeTheme.ApplyDark(this);
+        SourceInitialized += (_, _) => NativeTheme.Apply(this);
         Closed += (_, _) => _cts?.Cancel();
     }
 

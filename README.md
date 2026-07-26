@@ -16,7 +16,7 @@ automatically on your machine.
 2. Double-click **`Dragonfly.bat`**.
 
 This batch file builds and runs the app; Once built, the program lives at
-`bin\Release\net9.0-windows\Dragonfly.exe`
+`bin\Release\net10.0-windows\Dragonfly.exe`
 
 Prefer the command line? From the repo folder:
 

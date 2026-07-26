@@ -24,6 +24,7 @@ public class SettingsWindow : Window
         ResizeMode = ResizeMode.NoResize;
         WindowStyle = WindowStyle.SingleBorderWindow;
         Background = Res("Panel");
+        Foreground = Res("Text");
 
         var root = new DockPanel { Margin = new Thickness(24, 20, 24, 20) };
 
@@ -44,7 +45,7 @@ public class SettingsWindow : Window
         BuildBills();
         BuildUpdates();
 
-        SourceInitialized += (_, _) => NativeTheme.ApplyDark(this);
+        SourceInitialized += (_, _) => NativeTheme.Apply(this);
     }
 
     // ── Appearance ──
@@ -54,9 +55,11 @@ public class SettingsWindow : Window
 
         _body.Children.Add(FieldLabel("Theme"));
         var theme = new ComboBox { Style = St("Combo"), Margin = new Thickness(0, 0, 0, 4) };
-        theme.Items.Add("Purple (default)");
-        theme.Items.Add("Grey & Orange");
-        theme.SelectedIndex = S.Settings.Theme == AppTheme.GreyOrange ? 1 : 0;
+        theme.Items.Add("Purple (dark)");
+        theme.Items.Add("Grey & Orange (dark)");
+        theme.Items.Add("Purple (light)");
+        theme.Items.Add("Grey & Orange (light)");
+        theme.SelectedIndex = (int)S.Settings.Theme;
 
         var restartRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0), Visibility = Visibility.Collapsed };
         restartRow.Children.Add(new TextBlock { Text = "Restart to apply the new theme.", Foreground = Res("Warn"), VerticalAlignment = VerticalAlignment.Center });
@@ -66,7 +69,7 @@ public class SettingsWindow : Window
 
         theme.SelectionChanged += (_, _) =>
         {
-            var chosen = theme.SelectedIndex == 1 ? AppTheme.GreyOrange : AppTheme.Purple;
+            var chosen = (AppTheme)theme.SelectedIndex;
             if (chosen == S.Settings.Theme) return;
             S.Settings.Theme = chosen;
             S.Save();

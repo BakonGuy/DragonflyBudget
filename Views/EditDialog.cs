@@ -23,6 +23,7 @@ public class EditDialog : Window
         ResizeMode = ResizeMode.NoResize;
         WindowStyle = WindowStyle.SingleBorderWindow;
         Background = Res("Panel");
+        Foreground = Res("Text");
 
         _fields.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         _fields.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
@@ -56,7 +57,7 @@ public class EditDialog : Window
         root.Children.Add(_fields);
         Content = root;
 
-        SourceInitialized += (_, _) => NativeTheme.ApplyDark(this);
+        SourceInitialized += (_, _) => NativeTheme.Apply(this);
         Loaded += (_, _) => _firstControl?.Focus();
     }
 

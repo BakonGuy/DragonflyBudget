@@ -5,6 +5,7 @@
         Title="Dragonfly" Height="820" Width="1240" MinWidth="900" MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource Bg}"
+        Foreground="{StaticResource Text}"
         FontFamily="Segoe UI Variable Text, Segoe UI">
     <Grid>
         <Grid.ColumnDefinitions>

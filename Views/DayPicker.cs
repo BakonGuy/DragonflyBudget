@@ -81,13 +81,14 @@ public class DayPicker : Grid
             {
                 Content = day.ToString(),
                 Style = St("BtnGhost"),
+                Padding = new Thickness(2, 4, 2, 4),
                 Margin = new Thickness(1),
                 MinWidth = 32,
             };
             b.Click += (_, _) => { _box.Text = day.ToString(); _popup.IsOpen = false; };
             wrap.Children.Add(b);
         }
-        return new Border
+        var popupRoot = new Border
         {
             Background = Res("Panel"),
             BorderBrush = Res("BorderBrush"),
@@ -98,5 +99,8 @@ public class DayPicker : Grid
             Child = wrap,
             Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = Colors.Black, BlurRadius = 14, ShadowDepth = 3, Opacity = 0.5 },
         };
+        // A Popup is its own visual tree, so it can't inherit the window's text colour.
+        System.Windows.Documents.TextElement.SetForeground(popupRoot, Res("Text"));
+        return popupRoot;
     }
 }
