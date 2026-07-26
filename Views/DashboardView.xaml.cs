@@ -91,7 +91,12 @@ public partial class DashboardView : UserControl
     // ── Needs attention ──
     private Border BuildAttention(DateOnly today, DateOnly soon)
     {
-        var rows = B.BillsFor(S.Month).Where(b => b.Remaining > 0 && b.DueDate <= soon).ToList();
+        // Anything still owed from an earlier month comes first — it's later than anything due soon,
+        // and it stays here until it's dealt with.
+        var carried = B.CarriedOverBills(S.Month);
+        var rows = carried.Select(c => c.Row)
+            .Concat(B.BillsFor(S.Month).Where(b => b.Remaining > 0 && b.DueDate <= soon))
+            .ToList();
         var panel = new StackPanel();
         panel.Children.Add(SectionHeader(PackIconRemixIconKind.ErrorWarningFill, "Needs attention"));
 
@@ -112,13 +117,26 @@ public partial class DashboardView : UserControl
                 table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
                 var name = new WrapPanel { Margin = new Thickness(0, 9, 0, 9) };
-                name.Children.Add(new TextBlock { Text = r.Bill.Name, VerticalAlignment = VerticalAlignment.Center });
+                name.Children.Add(new TextBlock
+                {
+                    Text = r.Bill.Name,
+                    Foreground = row < carried.Count ? Res("Bad") : Res("Text"),
+                    FontWeight = row < carried.Count ? FontWeights.Bold : FontWeights.Normal,
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
                 if (r.Bill.AutoPay) name.Children.Add(AccentBadge("Auto"));
                 Place(table, name, row, 0);
 
+                // Carried-over rows are listed first, so their position identifies them. They show
+                // how late they are rather than a bare "Past due" — a date alone from another month
+                // reads as this month's.
+                bool isCarried = row < carried.Count;
+                int late = isCarried ? BudgetService.MonthsBetween(r.Status.Month, S.Month) : 0;
+
                 var due = new WrapPanel { Margin = new Thickness(0, 9, 0, 9), VerticalAlignment = VerticalAlignment.Center };
                 due.Children.Add(new TextBlock { Text = r.DueDate.ToString("MMM d"), Foreground = Res("TextDim"), VerticalAlignment = VerticalAlignment.Center });
-                if (r.DueDate < today) due.Children.Add(Badge("Past due", "Bad", "Bad"));
+                if (isCarried) due.Children.Add(Badge(late == 1 ? "1 month late" : $"{late} months late", "Bad", "Bad"));
+                else if (r.DueDate < today) due.Children.Add(Badge("Past due", "Bad", "Bad"));
                 else if (r.DueDate == today) due.Children.Add(Badge("Today", "Warn", "Warn"));
                 Place(table, due, row, 1);
 

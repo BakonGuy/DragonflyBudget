@@ -58,7 +58,15 @@ public static class AccountDialog
         var payField = dlg.AddTracked("Your monthly payment", payment, full: false);
         var showField = dlg.AddTracked("On repayment screen?", showRepay, full: false, rightColumn: true);
         var dueField = dlg.AddTracked("Payment Due Date", dueDay, full: false);
-        var minPctField = dlg.AddTracked("Minimum payment %", minPct, full: false, rightColumn: true);
+        // Statements quote a dollar minimum, not the percentage behind it. Rather than making the
+        // user divide, let them type the two numbers off the statement and work it out here.
+        var calcBtn = Btn("Work it out", "BtnSm", (_, _) => CalcPercent(dlg, balance, minPct));
+        calcBtn.Margin = new Thickness(6, 0, 0, 0);
+        DockPanel.SetDock(calcBtn, Dock.Right);
+        var pctRow = new DockPanel();
+        pctRow.Children.Add(calcBtn);
+        pctRow.Children.Add(minPct);
+        var minPctField = dlg.AddTracked("Minimum payment %", pctRow, full: false, rightColumn: true);
         var minFloorField = dlg.AddTracked("Minimum payment floor", minFloor, full: false);
         var minHint = dlg.AddHint("");
         var trackField = dlg.AddTracked("Payment bill", trackBill, full: false);
@@ -143,6 +151,55 @@ public static class AccountDialog
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Work the minimum-payment percentage out of two numbers straight off a statement: the balance
+    /// it was calculated on and the minimum it asked for. Card terms are quoted as a percentage but
+    /// statements only ever show the dollar figure, so this is the arithmetic the user would
+    /// otherwise do by hand — and doing it from their real numbers is what makes it accurate.
+    /// </summary>
+    private static void CalcPercent(Window owner, MoneyTextBox cardBalance, TextBox minPct)
+    {
+        var dlg = new EditDialog("Work out the percentage", owner);
+        var bal = new MoneyTextBox(cardBalance.Value);
+        var min = new MoneyTextBox(0);
+        dlg.Add("Balance on the statement", bal, full: false);
+        dlg.Add("Minimum payment it asked for", min, full: false, rightColumn: true);
+        var hint = dlg.AddHint("");
+
+        decimal Pct() => bal.Value <= 0 ? 0 : Math.Round(min.Value / bal.Value * 100m, 2, MidpointRounding.AwayFromZero);
+
+        void Preview()
+        {
+            if (bal.Value <= 0 || min.Value <= 0)
+            {
+                hint.Text = "Enter the balance the statement was calculated on and the minimum payment it asked for.";
+                return;
+            }
+            decimal pct = Pct();
+            // Real card terms are round numbers; a statement rounded to the cent rarely divides out
+            // to one exactly. Say what it's close to so the user can enter the tidy figure instead.
+            decimal clean = Math.Round(pct * 4, MidpointRounding.AwayFromZero) / 4;
+            string note = pct >= 5
+                // Percentage terms are typically 1–4%. Anything much higher means the statement was
+                // quoting the flat minimum, and dividing it out gives a percentage that would be
+                // badly wrong on a larger balance.
+                ? " That's far higher than a normal percentage term, so this statement was probably "
+                  + "showing a flat minimum. Put that figure in “Minimum payment floor” instead."
+                : clean > 0 && clean != pct && Math.Abs(clean - pct) < 0.06m
+                    ? $" That's almost exactly {clean:0.##}%, which is more likely to be the real term — "
+                      + "use that if it matches your cardholder agreement."
+                    : "";
+            hint.Text = $"{Fmt.Money(min.Value)} of {Fmt.Money(bal.Value)} is {pct:0.##}%.{note}";
+        }
+        bal.TextChanged += (_, _) => Preview();
+        min.TextChanged += (_, _) => Preview();
+        Preview();
+
+        dlg.OnValidate(() => bal.Value > 0 && min.Value > 0);
+        if (dlg.ShowDialog() == true)
+            minPct.Text = Pct().ToString("0.##");
     }
 
     /// <summary>

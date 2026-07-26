@@ -10,7 +10,10 @@
         <DockPanel Grid.Row="0" Margin="0,0,0,22">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                 <v:MonthHeader x:Name="Header" VerticalAlignment="Center"/>
-                <Button x:Name="AddBtn" Style="{StaticResource BtnPrimary}" Content="+ Add bill" Margin="12,0,0,0" Click="Add_Click"/>
+                <!-- The Loans section renders nothing when there are no loans, so the only way to add
+                     a first one has to live up here rather than in that section's header. -->
+                <Button x:Name="AddLoanBtn" Style="{StaticResource BtnSm}" Content="+ Add loan" Margin="12,0,0,0" Click="AddLoan_Click"/>
+                <Button x:Name="AddBtn" Style="{StaticResource BtnPrimary}" Content="+ Add bill" Margin="8,0,0,0" Click="Add_Click"/>
             </StackPanel>
             <StackPanel>
                 <TextBlock Text="Monthly Bills" Style="{StaticResource H1}"/>

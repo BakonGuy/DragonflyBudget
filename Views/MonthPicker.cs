@@ -35,7 +35,13 @@ public class MonthPicker : StackPanel
 
         Children.Add(_month);
         Children.Add(_year);
+
+        _month.SelectionChanged += (_, _) => Changed?.Invoke();
+        _year.SelectionChanged += (_, _) => Changed?.Invoke();
     }
+
+    /// <summary>Raised when the selected month or year changes, for live previews.</summary>
+    public event Action? Changed;
 
     /// <summary>Set current value. Pass null/empty for none.</summary>
     public void Set(string? key)

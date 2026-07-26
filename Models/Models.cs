@@ -217,6 +217,40 @@ public class AppSettings
     public bool WindowMaximized { get; set; }
 }
 
+/// <summary>
+/// An amortizing loan. Only the *opening* balance is stored: the current one is derived by replaying
+/// payments (see BudgetService.LoanSchedule). A stored running balance goes wrong the moment a
+/// payment is un-marked, back-dated or corrected; a derived one cannot, and the amortization table
+/// falls out of the same walk.
+/// </summary>
+public class Loan
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public decimal OpeningBalance { get; set; }
+    public string OpeningMonth { get; set; } = "";     // "yyyy-MM"
+    public decimal AprPercent { get; set; }
+    public decimal MonthlyPayment { get; set; }        // the scheduled payment
+    public int DueDay { get; set; } = 1;
+    public Guid? AccountId { get; set; }               // pays from
+    public string Notes { get; set; } = "";
+    public int SortOrder { get; set; }
+    public bool Archived { get; set; }
+}
+
+// Per-month state of a loan. Created lazily; never deleted, so history is kept.
+public class LoanMonthStatus
+{
+    public Guid LoanId { get; set; }
+    public string Month { get; set; } = "";
+    public PayStatus Status { get; set; } = PayStatus.Unpaid;
+    // What was actually paid that month. Defaults to the loan's scheduled payment when marked paid,
+    // but any amount is allowed — that is how an extra or short payment is recorded.
+    public decimal AmountPaid { get; set; }
+    public DateOnly? PaidDate { get; set; }
+    public bool UserSet { get; set; }
+}
+
 public class AppData
 {
     public int Version { get; set; } = 1;
@@ -234,4 +268,6 @@ public class AppData
     public List<BalanceEntry> BalanceHistory { get; set; } = [];
     public List<BudgetCategory> BudgetCategories { get; set; } = [];
     public List<BudgetSpendEntry> BudgetSpend { get; set; } = [];
+    public List<Loan> Loans { get; set; } = [];
+    public List<LoanMonthStatus> LoanStatuses { get; set; } = [];
 }

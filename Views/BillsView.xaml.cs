@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using Dragonfly.Models;
 using Dragonfly.Services;
@@ -24,6 +25,7 @@ public partial class BillsView : UserControl
 
     private void Save() => S.Save();
     private void Add_Click(object sender, RoutedEventArgs e) => EditBill(null);
+    private void AddLoan_Click(object sender, RoutedEventArgs e) => EditLoan(null);
 
     private void Refresh()
     {
@@ -35,16 +37,29 @@ public partial class BillsView : UserControl
         bool manual = pref.Key == "manual";
         var s = B.Summarize(S.Month);
 
+        // Bills left unpaid in earlier months. Not new records — each row still belongs to the month
+        // it came from, so acting on one writes its own month's history, not this month's.
+        var carried = B.CarriedOverBills(S.Month);
+
         var stats = new UniformGrid { Rows = 1, Margin = new Thickness(0, 0, 0, 20) };
         AddSpaced(stats, StatCard("Total monthly", Fmt.Money(s.TotalMonthlyBills), ""));
         AddSpaced(stats, StatCard("Total unpaid", Fmt.Money(s.TotalUnpaid), ""));
+        if (s.CarriedOverUnpaid > 0)
+            AddSpaced(stats, StatCard("Carried over", Fmt.Money(s.CarriedOverUnpaid),
+                $"{s.CarriedOverCount} unpaid from earlier month(s)", Res("Bad")));
+        if (s.LoanBalanceTotal > 0)
+            AddSpaced(stats, StatCard("Loans left", Fmt.Money(s.LoanBalanceTotal),
+                s.LoanPaymentsDue > 0 ? $"{Fmt.Money(s.LoanPaymentsDue)} due this month" : "paid this month"));
         AddSpaced(stats, StatCard("Due in 7 days", Fmt.Money(s.DueSoon), "", s.DueSoon > 0 ? Res("Bad") : Res("Text")));
         AddSpaced(stats, StatCard("Bank after due-soon paid", Fmt.Money(s.AfterDueSoonPaid), "", s.AfterDueSoonPaid < 0 ? Res("Bad") : Res("Good")));
         Body.Children.Add(stats);
 
-        if (rows.Count == 0)
+        // A month with no bills can still have loans, so the empty state can't short-circuit the
+        // whole screen — it only stands in for the bill sections.
+        if (rows.Count == 0 && carried.Count == 0)
         {
             Body.Children.Add(Card(Empty("No bills for this month yet. Add one — recurring bills automatically show in every month they cover.")));
+            BuildLoans();
             return;
         }
 
@@ -57,30 +72,43 @@ public partial class BillsView : UserControl
         var cardRows = rows.Where(IsCardPayment).ToList();
 
         var tables = new List<Grid>();
+
+        // Above everything: what's late. One section for all of it, whatever section the bill would
+        // sit in this month — an unpaid card payment from two months ago is exactly as late as an
+        // unpaid electric bill.
+        if (carried.Count > 0)
+        {
+            // The row carries the month it belongs to on its own status, so the label needs no
+            // side table to look it up in.
+            var t = BuildTable(carried.Select(c => c.Row).ToList(), manual: false,
+                subLabel: r => $"{BudgetService.MonthLabel(r.Status.Month)} · "
+                             + Late(BudgetService.MonthsBetween(r.Status.Month, S.Month)),
+                alarm: true);
+            tables.Add(t);
+            AddSection(PackIconRemixIconKind.AlarmWarningFill, "Carried over", t);
+        }
+
         if (billRows.Count > 0)
         {
             var t = BuildTable(billRows, manual);
             tables.Add(t);
-            // The bills table only needs naming once there's a second section to tell it apart from;
+            // The bills table only needs naming once there's another section to tell it apart from;
             // on its own it is the screen, and the page header already says so.
-            if (cardRows.Count > 0)
-            {
-                var panel = new StackPanel();
-                panel.Children.Add(SectionHeader(PackIconRemixIconKind.BillFill, "Bills"));
-                panel.Children.Add(Card(t));
-                Body.Children.Add(panel);
-            }
-            else Body.Children.Add(Card(t));
+            if (carried.Count > 0 || cardRows.Count > 0)
+                AddSection(PackIconRemixIconKind.BillFill, "Bills", t);
+            else
+                Body.Children.Add(Card(t));
         }
         if (cardRows.Count > 0)
         {
             var t = BuildTable(cardRows, manual: false);
             tables.Add(t);
-            var panel = new StackPanel { Margin = new Thickness(0, 18, 0, 0) };
-            panel.Children.Add(SectionHeader(PackIconRemixIconKind.BankCardFill, "Credit Cards"));
-            panel.Children.Add(Card(t));
-            Body.Children.Add(panel);
+            AddSection(PackIconRemixIconKind.BankCardFill, "Credit Cards", t);
         }
+
+        // Loans are the one section whose columns genuinely differ, so they get their own table and
+        // their own saved layout rather than joining the shared one.
+        BuildLoans();
 
         // One saved layout for every section: same columns stacked down the screen have to line up,
         // and dragging a divider in either one moves it in both.
@@ -93,6 +121,318 @@ public partial class BillsView : UserControl
         ColumnResize.Apply(tables, "bills", S.Settings, S.SaveQuiet, cols: new[] { 2, 3, 4 }, handleCols: new[] { 1, 3, 4 });
     }
 
+    // ── Loans ──
+    /// <summary>
+    /// This month's slice of every active loan's amortization. Renders nothing at all when there are
+    /// no loans — users without loans never see the section, which is why "+ Add loan" lives in the
+    /// screen header instead of this section's.
+    /// </summary>
+    private void BuildLoans()
+    {
+        var loans = B.ActiveLoans()
+            .Select(l => (Loan: l, Row: B.LoanRowFor(l, S.Month)))
+            .Where(x => x.Row.Month != null)
+            .ToList();
+        if (loans.Count == 0) return;
+
+        var table = new Grid();
+        foreach (var w in new[]
+        {
+            Star(1),                 // LOAN — the one column that absorbs spare width
+            GridLength.Auto,         // DUE
+            new GridLength(130),     // PAYMENT — editable
+            new GridLength(110),     // INTEREST
+            new GridLength(110),     // PRINCIPAL
+            new GridLength(130),     // BALANCE LEFT
+            GridLength.Auto,         // actions
+        })
+            table.ColumnDefinitions.Add(new ColumnDefinition { Width = w });
+        table.ColumnDefinitions[0].MinWidth = 120;
+
+        AddHeader(table, "LOAN", 0);
+        AddHeader(table, "DUE", 1);
+        AddHeader(table, "PAYMENT", 2, right: true);
+        AddHeader(table, "INTEREST", 3, right: true);
+        AddHeader(table, "PRINCIPAL", 4, right: true);
+        AddHeader(table, "BALANCE LEFT", 5, right: true);
+        AddHeader(table, "", 6);
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        foreach (var (loan, slice) in loans)
+        {
+            var m = slice.Month!;
+            var st = slice.Status;
+            int row = table.RowDefinitions.Count;
+            table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var (y, mo) = BudgetService.ParseMonth(S.Month);
+            var dueDate = new DateOnly(y, mo, Math.Clamp(loan.DueDay, 1, DateTime.DaysInMonth(y, mo)));
+            bool overdue = !m.Paid && dueDate < today;
+            double op = m.Paid ? 0.5 : 1.0;
+
+            if (overdue)
+            {
+                var bg = new Border { Background = new SolidColorBrush(((SolidColorBrush)Res("Bad")).Color) { Opacity = 0.06 } };
+                Grid.SetRow(bg, row); Grid.SetColumnSpan(bg, 7); table.Children.Add(bg);
+            }
+
+            bool stuck = BudgetService.NeverAmortizes(m);
+
+            var nameRow = new WrapPanel();
+            nameRow.Children.Add(new TextBlock { Text = loan.Name, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+            // A rising balance looks like a bug unless the reason is stated on the row itself.
+            if (stuck) nameRow.Children.Add(Badge("Payment doesn't cover interest", "Bad", "Bad"));
+
+            var name = new StackPanel { Margin = new Thickness(10, 10, 6, 10), Opacity = op };
+            name.Children.Add(nameRow);
+            name.Children.Add(new TextBlock
+            {
+                Text = loan.AprPercent > 0 ? $"{loan.AprPercent:0.##}% APR" : "interest-free",
+                Foreground = Res("TextFaint"), FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0),
+            });
+            Place(table, name, row, 0);
+
+            var due = new WrapPanel { Margin = new Thickness(10, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Opacity = op };
+            due.Children.Add(new TextBlock { Text = dueDate.ToString("MMM d"), Foreground = Res("TextDim"), VerticalAlignment = VerticalAlignment.Center });
+            if (overdue) due.Children.Add(Badge("Past due", "Bad", "Bad"));
+            else if (m.Paid) due.Children.Add(Badge("Paid", "Good", "Good"));
+            Place(table, due, row, 1);
+
+            // Editable: typing an amount records that this month's payment was that much, which is
+            // how an extra, larger or short payment is entered. Everything after it re-derives.
+            var pay = new TextBox
+            {
+                Text = Fmt.Money(m.Payment),
+                Style = St("InputNum"),
+                MinWidth = 80,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 4, 10, 4),
+            };
+            var loanRef = loan; var stRef = st; decimal shown = m.Payment;
+            void CommitPay()
+            {
+                decimal v = ParseMoney(pay.Text);
+                if (v == shown) { pay.Text = Fmt.Money(shown); return; }   // nothing to write
+                RecordLoanPayment(loanRef, stRef, v, dueDate);
+            }
+            pay.LostFocus += (_, _) => CommitPay();
+            pay.KeyDown += (_, e) => { if (e.Key == Key.Enter) { CommitPay(); Keyboard.ClearFocus(); } };
+            Place(table, pay, row, 2);
+
+            Place(table, RightText(Fmt.Money(m.Interest), Res("TextDim"), op), row, 3);
+            // Negative principal means the debt grew this month — never show that in a quiet grey.
+            Place(table, RightText(Fmt.Money(m.Principal), m.Principal < 0 ? Res("Bad") : Res("TextDim"), op), row, 4);
+            Place(table, RightText(Fmt.Money(m.Closing),
+                m.Closing <= 0 ? Res("Good") : m.Closing > m.Opening ? Res("Bad") : Res("Text"), op), row, 5);
+
+            var acts = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 4, 6) };
+            if (!m.Paid)
+                acts.Children.Add(Space(Btn("Paid", "BtnSm", (_, _) => RecordLoanPayment(loanRef, stRef, loanRef.MonthlyPayment, dueDate))));
+            else
+                acts.Children.Add(Space(Btn("Undo", "BtnGhost", (_, _) =>
+                {
+                    stRef.Status = PayStatus.Unpaid; stRef.AmountPaid = 0; stRef.PaidDate = null; stRef.UserSet = true;
+                    Save();
+                })));
+            acts.Children.Add(Space(IconButton(PackIconRemixIconKind.PriceTag3Fill, "BtnGhost",
+                (_, _) => CorrectBalance(loanRef), tooltip: "Correct balance")));
+            acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditLoan(loanRef), tooltip: "Edit")));
+            Place(table, acts, row, 6);
+        }
+
+        AddSection(PackIconRemixIconKind.BankFill, "Loans", table);
+        ColumnResize.Apply(table, "bills.loans", S.Settings, S.SaveQuiet,
+            cols: new[] { 2, 3, 4, 5 }, handleCols: new[] { 1, 3, 4, 5 });
+    }
+
+    /// <summary>
+    /// Record what was paid on a loan this month. Any amount is allowed — that is how an extra or
+    /// short payment is entered — and the schedule re-derives from it.
+    /// </summary>
+    private void RecordLoanPayment(Loan loan, LoanMonthStatus st, decimal amount, DateOnly dueDate)
+    {
+        st.AmountPaid = Math.Max(0, amount);
+        st.Status = st.AmountPaid <= 0 ? PayStatus.Unpaid : PayStatus.Paid;
+        st.PaidDate = st.AmountPaid <= 0 ? null : dueDate;
+        st.UserSet = true;
+        Save();
+    }
+
+    /// <summary>
+    /// Re-anchor a loan to the balance the lender actually shows. This is the escape hatch that keeps
+    /// the derived-balance model usable: rather than hunting back through months to find where the
+    /// app and reality diverged, state today's balance and carry on from there.
+    ///
+    /// The anchor is the balance at the *start* of a month, which is what the loan stores — so
+    /// correcting it is the same operation as setting the loan up, just done later.
+    /// </summary>
+    private void CorrectBalance(Loan loan)
+    {
+        var win = Window.GetWindow(this)!;
+        var dlg = new EditDialog($"Correct balance — {loan.Name}", win);
+
+        var amount = new MoneyTextBox(B.LoanSchedule(loan, S.Month).FirstOrDefault(x => x.Month == S.Month)?.Opening ?? loan.OpeningBalance);
+        var month = new MonthPicker(); month.Set(S.Month);
+        dlg.Add("Balance owed", amount, full: false);
+        dlg.Add("As of the start of", month, full: false, rightColumn: true);
+        var preview = dlg.AddHint("");
+
+        // Say plainly what this month will look like afterwards, so "start of the month" isn't
+        // something the user has to work out for themselves.
+        void Preview()
+        {
+            string m = month.Value ?? S.Month;
+            decimal bal = amount.Value;
+            decimal interest = Math.Round(bal * loan.AprPercent / 100m / 12m, 2, MidpointRounding.AwayFromZero);
+            var st = B.Data.LoanStatuses.FirstOrDefault(x => x.LoanId == loan.Id && x.Month == m);
+            bool paid = st != null && st.Status is PayStatus.Paid or PayStatus.Partial;
+            decimal pay = Math.Max(0, Math.Min(paid ? st!.AmountPaid : loan.MonthlyPayment, bal + interest));
+            preview.Text = $"{BudgetService.MonthLabel(m)} starts at {Fmt.Money(bal)} and ends at "
+                         + $"{Fmt.Money(bal + interest - pay)} after {Fmt.Money(pay)} paid "
+                         + $"({Fmt.Money(interest)} of it interest). Months before this stop affecting "
+                         + "the balance; their history is kept.";
+        }
+        amount.TextChanged += (_, _) => Preview();
+        month.Changed += Preview;
+        Preview();
+
+        dlg.OnValidate(() => true);
+        if (dlg.ShowDialog() == true)
+        {
+            loan.OpeningBalance = amount.Value;
+            loan.OpeningMonth = month.Value ?? S.Month;
+            Save();
+        }
+    }
+
+    private static Border RightText(string text, Brush brush, double opacity) => new()
+    {
+        Padding = new Thickness(0, 0, 10, 0),
+        Opacity = opacity,
+        Child = new TextBlock { Text = text, Foreground = brush, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center },
+    };
+
+    /// <summary>Add/edit a loan.</summary>
+    private void EditLoan(Loan? existing)
+    {
+        var win = Window.GetWindow(this)!;
+        bool isNew = existing == null;
+        var l = existing;
+        var dlg = new EditDialog(isNew ? "Add loan" : "Edit loan", win);
+
+        var name = EditDialog.Text(l?.Name ?? "", "e.g. Car loan");
+        var opening = new MoneyTextBox(l?.OpeningBalance ?? 0);
+        var openMonth = new MonthPicker(); openMonth.Set(l?.OpeningMonth ?? S.Month);
+        var apr = EditDialog.Text((l?.AprPercent ?? 0).ToString("0.##"), "e.g. 6.5");
+        var payment = new MoneyTextBox(l?.MonthlyPayment ?? 0);
+        var dueDay = new DayPicker(l?.DueDay ?? 1);
+        var account = EditDialog.Combo(BankNames(), B.FindAccount(l?.AccountId)?.Name ?? "");
+        var notes = EditDialog.Notes(l?.Notes ?? "");
+
+        dlg.AddSection("Loan");
+        dlg.Add("Name", name);
+        dlg.Add("Balance owed", opening, full: false);
+        dlg.Add("As of the start of", openMonth, full: false, rightColumn: true);
+        dlg.AddHint("Adding a loan you're already part-way through? Just enter what you owe now and "
+                  + "leave the month as this one — Dragonfly works forward from there. None of the "
+                  + "earlier history has to be entered.");
+
+        dlg.AddSection("Terms");
+        dlg.Add("Interest rate (APR %)", apr, full: false);
+        dlg.Add("Required monthly payment", payment, full: false, rightColumn: true);
+        dlg.Add("Payment Due Date", dueDay, full: false);
+        dlg.Add("Pay from", account, full: false, rightColumn: true);
+        var termsHint = dlg.AddHint("");
+
+        // The payment entered here is what the loan *requires* each month; what actually went out in
+        // a given month is the editable amount on that month's row. Saying so here, next to a live
+        // payoff estimate, is what keeps the two from reading as the same number.
+        void TermsPreview()
+        {
+            decimal bal = opening.Value, rate = ParseRate(apr.Text), pay = payment.Value;
+            decimal monthlyInterest = Math.Round(bal * rate / 100m / 12m, 2, MidpointRounding.AwayFromZero);
+            string tail = " What you actually pay in any month is set on that month's row — type over "
+                        + "the payment to record more or less than this.";
+
+            if (bal <= 0 || pay <= 0) { termsHint.Text = "The required payment is what's due each month." + tail; return; }
+            if (pay <= monthlyInterest)
+            {
+                termsHint.Text = $"{Fmt.Money(pay)} doesn't cover the {Fmt.Money(monthlyInterest)} of interest this "
+                               + $"balance accrues each month, so it would grow rather than shrink." + tail;
+                return;
+            }
+            var p = BudgetService.CalcPayoff(bal, rate, pay);
+            termsHint.Text = p.NeverPaysOff
+                ? "This payment never clears the balance." + tail
+                : $"Required each month: {Fmt.Money(pay)} clears this balance in {p.Months} month(s), "
+                  + $"{Fmt.Money(p.TotalInterest)} of it interest." + tail;
+        }
+        opening.TextChanged += (_, _) => TermsPreview();
+        apr.TextChanged += (_, _) => TermsPreview();
+        payment.TextChanged += (_, _) => TermsPreview();
+        TermsPreview();
+
+        dlg.AddHint("Every month from the date above is worked out from these terms, so changing them "
+                  + "re-derives the balance. If the balance ever drifts from what your lender says, "
+                  + "use “Correct balance” on the loan's row.");
+
+        dlg.AddSection("Notes");
+        dlg.Add("Anything to remember", notes);
+
+        dlg.OnValidate(() =>
+        {
+            if (string.IsNullOrWhiteSpace(name.Text)) { name.Focus(); return false; }
+            return true;
+        });
+
+        if (!isNew)
+            dlg.EnableDelete(() =>
+            {
+                B.Data.Loans.RemoveAll(x => x.Id == l!.Id);
+                B.Data.LoanStatuses.RemoveAll(x => x.LoanId == l!.Id);
+                Save();
+            });
+
+        if (dlg.ShowDialog() == true)
+        {
+            var target = isNew ? new Loan() : B.Data.Loans.First(x => x.Id == l!.Id);
+            target.Name = name.Text.Trim();
+            target.OpeningBalance = opening.Value;
+            target.OpeningMonth = openMonth.Value ?? S.Month;
+            target.AprPercent = ParseRate(apr.Text);
+            target.MonthlyPayment = payment.Value;
+            target.DueDay = dueDay.Day;
+            target.AccountId = B.BankAccounts().FirstOrDefault(x => x.Name == (account.SelectedItem as string))?.Id;
+            target.Notes = notes.Text.Trim();
+            target.Archived = false;   // editing a settled loan brings it back
+            if (isNew) { target.SortOrder = B.Data.Loans.Count; B.Data.Loans.Add(target); }
+            Save();
+        }
+    }
+
+    /// <summary>Bank accounts to fund a payment from, blank first so nothing is guessed.</summary>
+    private List<string> BankNames()
+    {
+        var names = new List<string> { "" };
+        names.AddRange(B.BankAccounts().Select(x => x.Name).Where(n => !string.IsNullOrWhiteSpace(n)));
+        return names;
+    }
+
+    private static decimal ParseRate(string? v) =>
+        decimal.TryParse((v ?? "").Replace("%", "").Trim(), out var d) ? d : 0;
+
+    /// <summary>Add a named section to the body, spaced from whatever came before it.</summary>
+    private void AddSection(PackIconRemixIconKind icon, string title, Grid table)
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, Body.Children.Count > 2 ? 18 : 0, 0, 0) };
+        panel.Children.Add(SectionHeader(icon, title));
+        panel.Children.Add(Card(table));
+        Body.Children.Add(panel);
+    }
+
+    /// <summary>"2 months late" — how far back a carried-over bill's own month is.</summary>
+    private static string Late(int months) => months == 1 ? "1 month late" : $"{months} months late";
+
     /// <summary>A card payment sits in its own section; anything else is an ordinary bill.</summary>
     private bool IsCardPayment(BillRow r) =>
         r.Bill.PaysAccountId != null && B.FindAccount(r.Bill.PaysAccountId)?.Type == AccountType.CreditCard;
@@ -101,7 +441,9 @@ public partial class BillsView : UserControl
     /// One section's table. Every section has the same columns and the same actions — only the rows
     /// differ — so this is the single place a bill row is built.
     /// </summary>
-    private Grid BuildTable(List<BillRow> rows, bool manual)
+    /// <param name="subLabel">Optional second line under the bill's name.</param>
+    /// <param name="alarm">Style the name and amount as overdue money (bold, red).</param>
+    private Grid BuildTable(List<BillRow> rows, bool manual, Func<BillRow, string>? subLabel = null, bool alarm = false)
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
         var soon = today.AddDays(7);
@@ -147,11 +489,23 @@ public partial class BillsView : UserControl
             }
 
             // name
-            var name = new WrapPanel { Margin = new Thickness(10, 10, 6, 10), Opacity = op };
-            if (manual) name.Children.Add(DragReorder.Handle(r.Bill));
-            name.Children.Add(new TextBlock { Text = r.Bill.Name, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-            if (r.Bill.Recurrence == Recurrence.OneOff) name.Children.Add(Badge("One-off", "TextDim", "TextDim"));
-            if (r.Bill.AutoPay) name.Children.Add(AccentBadge("Auto"));
+            var nameRow = new WrapPanel();
+            if (manual) nameRow.Children.Add(DragReorder.Handle(r.Bill));
+            nameRow.Children.Add(new TextBlock
+            {
+                Text = r.Bill.Name,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = alarm ? Res("Bad") : Res("Text"),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            if (r.Bill.Recurrence == Recurrence.OneOff) nameRow.Children.Add(Badge("One-off", "TextDim", "TextDim"));
+            if (r.Bill.AutoPay) nameRow.Children.Add(AccentBadge("Auto"));
+
+            var name = new StackPanel { Margin = new Thickness(10, 10, 6, 10), Opacity = op };
+            name.Children.Add(nameRow);
+            // Which month this row actually belongs to, for rows that aren't from the viewed one.
+            if (subLabel?.Invoke(r) is { Length: > 0 } sub)
+                name.Children.Add(new TextBlock { Text = sub, Foreground = Res("Bad"), FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0) });
             Place(table, name, row, 0);
             markers.Add((name, r.Bill));
 
@@ -167,7 +521,16 @@ public partial class BillsView : UserControl
             // completely different (much smaller) number. Trimming keeps the significant end and
             // shows plainly that the column is too narrow.
             var amtPanel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 10, 0), Opacity = op };
-            amtPanel.Children.Add(new TextBlock { Text = Fmt.Money(r.Amount), HorizontalAlignment = HorizontalAlignment.Right, TextAlignment = TextAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = Fmt.Money(r.Amount) });
+            amtPanel.Children.Add(new TextBlock
+            {
+                Text = Fmt.Money(r.Amount),
+                FontWeight = alarm ? FontWeights.Bold : FontWeights.Normal,
+                Foreground = alarm ? Res("Bad") : Res("Text"),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                TextAlignment = TextAlignment.Right,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = Fmt.Money(r.Amount),
+            });
             if (r.Status.Status == PayStatus.Partial)
                 amtPanel.Children.Add(new TextBlock { Text = $"{Fmt.Money(r.Status.AmountPaid)} paid", Foreground = Res("Warn"), FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Right, TextAlignment = TextAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis });
             Place(table, amtPanel, row, 2);

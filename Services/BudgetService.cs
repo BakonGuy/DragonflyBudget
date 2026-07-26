@@ -20,7 +20,12 @@ public record MonthSummary(
     decimal PendingIn, decimal PendingOut, decimal AmountBehind, decimal EndOfMonthProjection,
     int UnpaidCount, int DueSoonCount,
     // Unpaid bills split by what they draw from: bank/cash lowers funds, a card raises what's owed.
-    decimal UnpaidFromBank, decimal UnpaidFromCard, decimal ProjectedCardOwed);
+    decimal UnpaidFromBank, decimal UnpaidFromCard, decimal ProjectedCardOwed,
+    // Still owed from earlier months. Deliberately *not* part of TotalUnpaid, which stays "this
+    // month's bills" — but real money, so it is folded into AmountBehind and the projection.
+    decimal CarriedOverUnpaid, int CarriedOverCount,
+    // Loans: this month's unpaid scheduled payments (bank money out), and what's still owed overall.
+    decimal LoanPaymentsDue, decimal LoanBalanceTotal);
 
 public class BudgetService(DataStore store)
 {
@@ -112,6 +117,60 @@ public class BudgetService(DataStore store)
             })
             .OrderBy(r => r.DueDate).ThenBy(r => r.Bill.Name)
             .ToList();
+    }
+
+    /// <summary>A bill left unpaid in an earlier month, still owed as of the month being viewed.</summary>
+    public record CarriedBillRow(BillRow Row, string Month, int MonthsLate);
+
+    /// <summary>
+    /// Bills from earlier months that are still owed, oldest first. Nothing is created to represent
+    /// a carry-over: it is just an earlier month's row whose <see cref="BillRow.Remaining"/> is
+    /// still above zero, so marking it paid writes to the month it actually belongs to.
+    ///
+    /// The lookback is capped so an old file can't produce an unbounded list.
+    ///
+    /// Unlike <see cref="BillsFor"/> this does not materialize a status record for every month it
+    /// looks at — walking two years would otherwise write up to 24 empty rows per bill on the first
+    /// call. Months with no stored status are tested against a throwaway one, and a record is only
+    /// created for the rows that genuinely carry over, which are exactly the ones the user can act
+    /// on. An absent status means Unpaid, so this changes nothing about what's owed.
+    /// </summary>
+    public List<CarriedBillRow> CarriedOverBills(string viewMonth, int lookbackMonths = 24)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var carried = new List<CarriedBillRow>();
+
+        for (int back = lookbackMonths; back >= 1; back--)
+        {
+            string m = AddMonths(viewMonth, -back);
+            var (y, mo) = ParseMonth(m);
+            int days = DateTime.DaysInMonth(y, mo);
+
+            foreach (var bill in Data.Bills)
+            {
+                // The bill's own start/end decide whether it was owed in that month. Whether it
+                // applies to the month being *viewed* is irrelevant — an ended bill can still have
+                // unpaid history behind it.
+                if (!BillAppliesTo(bill, m)) continue;
+
+                var stored = Data.BillStatuses.FirstOrDefault(x => x.BillId == bill.Id && x.Month == m);
+                var st = stored ?? new BillMonthStatus { BillId = bill.Id, Month = m };
+                var amt = st.AmountOverride ?? BillAmount(bill);
+                var due = new DateOnly(y, mo, Math.Clamp(st.DueDayOverride ?? bill.DueDay, 1, days));
+                var (eff, autoPaid) = EffectiveStatus(bill, st, due, today);
+
+                // Skipped is the user saying "not owed" — it never carries over. Autopay bills
+                // resolve to Paid once their due date passes, so they don't reach here either.
+                if (eff == PayStatus.Skipped) continue;
+                var row = new BillRow(bill, st, amt, due, eff, autoPaid);
+                if (row.Remaining <= 0) continue;
+
+                // It carries over, so it needs a real record to act on.
+                if (stored == null) row = row with { Status = GetBillStatus(bill, m) };
+                carried.Add(new CarriedBillRow(row, m, back));
+            }
+        }
+        return carried;
     }
 
     /// <summary>
@@ -304,7 +363,11 @@ public class BudgetService(DataStore store)
     /// </summary>
     public decimal EffectiveBalance(BankAccount a)
     {
-        decimal charges = ChargesAgainst(a.Id).Where(p => p.Date > a.LastUserBalanceDate).Sum(p => p.Amount);
+        // Loans keep their own parallel path rather than being forced into the account model: a loan
+        // is not an account, and making it one would distort BankAccounts(), CreditCards() and every
+        // total that walks Data.Banks. A loan payment leaves the funding account like any charge.
+        decimal charges = ChargesAgainst(a.Id).Concat(LoanPaymentsFrom(a.Id))
+            .Where(p => p.Date > a.LastUserBalanceDate).Sum(p => p.Amount);
         decimal paid = PaymentsToward(a.Id).Where(p => p.Date > a.LastUserBalanceDate).Sum(p => p.Amount);
         // A bill paid on a card increases what's owed; on a bank account it reduces the balance.
         // A payment toward an account always reduces it: a card's debt falls by what you paid it.
@@ -360,7 +423,8 @@ public class BudgetService(DataStore store)
         // raises a card and lowers a bank; a payment toward an account always lowers it. Without the
         // second stream the chart would contradict the account row, which does subtract them.
         bool card = a.Type == AccountType.CreditCard;
-        events.AddRange(ChargesAgainst(a.Id).Select(p => (p.Date, false, card ? p.Amount : -p.Amount)));
+        events.AddRange(ChargesAgainst(a.Id).Concat(LoanPaymentsFrom(a.Id))
+            .Select(p => (p.Date, false, card ? p.Amount : -p.Amount)));
         events.AddRange(PaymentsToward(a.Id).Select(p => (p.Date, false, -p.Amount)));
 
         // Manual entries first on ties, so a same-day user value wins over that day's payments.
@@ -459,22 +523,146 @@ public class BudgetService(DataStore store)
         decimal unpaidBank = totalUnpaid - unpaidCard;
         decimal dueSoonBank = dueSoonRows.Where(b => !PaidOnCard(b)).Sum(b => b.Remaining);
 
+        // Money still owed from earlier months. Only the bank-funded part changes the projection —
+        // the rest sits on a card, exactly as the split above treats this month's bills.
+        var carried = CarriedOverBills(month);
+        decimal carriedBank = carried.Where(c => !PaidOnCard(c.Row)).Sum(c => c.Row.Remaining);
+
         // Pending card payments will lower what's owed by the time they're made.
         decimal cardPaymentsDue = bills.Where(b => b.Remaining > 0 && b.Bill.PaysAccountId != null
                                               && FindAccount(b.Bill.PaysAccountId)?.Type == AccountType.CreditCard)
                                        .Sum(b => b.Remaining);
+
+        // A loan payment is bank money out, like any bank-funded bill.
+        decimal loansDue = LoanPaymentsDue(month);
 
         return new MonthSummary(
             BankTotal: bank, Cash: Data.CashOnHand, TotalFunds: funds, CreditTotal: credit,
             TotalMonthlyBills: totalMonthly, TotalUnpaid: totalUnpaid,
             DueSoon: dueSoon, AfterDueSoonPaid: funds - dueSoonBank,
             PendingIn: pendingIn, PendingOut: pendingOut,
-            AmountBehind: funds - unpaidBank,
-            EndOfMonthProjection: funds - unpaidBank + pendingIn + pendingOut,
+            AmountBehind: funds - unpaidBank - carriedBank - loansDue,
+            EndOfMonthProjection: funds - unpaidBank - carriedBank - loansDue + pendingIn + pendingOut,
             UnpaidCount: bills.Count(b => b.Remaining > 0),
             DueSoonCount: dueSoonRows.Count,
             UnpaidFromBank: unpaidBank, UnpaidFromCard: unpaidCard,
-            ProjectedCardOwed: credit + unpaidCard - cardPaymentsDue);
+            ProjectedCardOwed: credit + unpaidCard - cardPaymentsDue,
+            CarriedOverUnpaid: carried.Sum(c => c.Row.Remaining),
+            CarriedOverCount: carried.Count,
+            LoanPaymentsDue: loansDue,
+            LoanBalanceTotal: LoanBalanceTotal(month));
+    }
+
+    // ---- loans ----
+    public IEnumerable<Loan> ActiveLoans() => Data.Loans.Where(l => !l.Archived).OrderBy(l => l.SortOrder);
+
+    public LoanMonthStatus GetLoanStatus(Loan l, string month)
+    {
+        var s = Data.LoanStatuses.FirstOrDefault(x => x.LoanId == l.Id && x.Month == month);
+        if (s == null)
+        {
+            s = new LoanMonthStatus { LoanId = l.Id, Month = month };
+            Data.LoanStatuses.Add(s);
+        }
+        return s;
+    }
+
+    /// <summary>One month of a loan's amortization. Closing = Opening + Interest − Payment.</summary>
+    public record LoanMonth(string Month, decimal Opening, decimal Interest, decimal Principal,
+                            decimal Payment, decimal Closing, bool Paid);
+
+    /// <summary>Cap on how far a schedule will walk, mirroring <see cref="CalcPayoff"/>.</summary>
+    private const int MaxLoanMonths = 1200;
+
+    /// <summary>
+    /// Month-by-month amortization from the loan's opening month through <paramref name="throughMonth"/>
+    /// (inclusive), or until the balance reaches zero — whichever comes first.
+    ///
+    /// Months the user has paid use the amount they actually paid, so an extra, short or corrected
+    /// payment simply re-derives everything after it. Future months use the scheduled payment.
+    ///
+    /// A payment that doesn't cover the month's interest produces a *rising* balance and negative
+    /// principal. That is the real behaviour of such a loan and the schedule reports it rather than
+    /// hiding it — the walk is bounded by <paramref name="throughMonth"/> anyway, with
+    /// <see cref="MaxLoanMonths"/> as a backstop against an absurd anchor date. Callers should say
+    /// so in the UI; see <see cref="NeverAmortizes"/>.
+    ///
+    /// Reading this is not free, so it does not materialize status records — see
+    /// <see cref="LoanRowFor"/> for the one that does.
+    /// </summary>
+    public List<LoanMonth> LoanSchedule(Loan loan, string throughMonth)
+    {
+        var months = new List<LoanMonth>();
+        if (string.IsNullOrWhiteSpace(loan.OpeningMonth) || loan.OpeningBalance <= 0) return months;
+
+        int span = MonthsBetween(loan.OpeningMonth, throughMonth);
+        if (span < 0) return months;
+
+        decimal r = loan.AprPercent / 100m / 12m;
+        decimal bal = loan.OpeningBalance;
+        string m = loan.OpeningMonth;
+
+        for (int i = 0; i <= span && i < MaxLoanMonths && bal > 0; i++, m = AddMonths(m, 1))
+        {
+            var st = Data.LoanStatuses.FirstOrDefault(x => x.LoanId == loan.Id && x.Month == m);
+            bool paid = st != null && st.Status is PayStatus.Paid or PayStatus.Partial;
+
+            decimal interest = Math.Round(bal * r, 2, MidpointRounding.AwayFromZero);
+            // What was actually paid for a settled month; the schedule for anything else.
+            decimal payment = paid ? st!.AmountPaid : loan.MonthlyPayment;
+            payment = Math.Max(0, Math.Min(payment, bal + interest));   // never overpay past zero
+
+            decimal closing = bal + interest - payment;
+            months.Add(new LoanMonth(m, bal, interest, payment - interest, payment, closing, paid));
+            bal = closing;
+        }
+        return months;
+    }
+
+    /// <summary>
+    /// True when the scheduled payment can't cover a month's interest, so the balance grows instead
+    /// of shrinking and the loan never pays off at this payment.
+    /// </summary>
+    public static bool NeverAmortizes(LoanMonth m) => !m.Paid && m.Payment <= m.Interest;
+
+    /// <summary>What's left on a loan at the end of <paramref name="asOfMonth"/>.</summary>
+    public decimal LoanBalance(Loan loan, string asOfMonth)
+    {
+        var sched = LoanSchedule(loan, asOfMonth);
+        return sched.Count == 0 ? (string.IsNullOrWhiteSpace(loan.OpeningMonth) ? 0 : loan.OpeningBalance)
+                                : Math.Max(0, sched[^1].Closing);
+    }
+
+    /// <summary>A loan's slice of a given month, with its status record materialized so it can be acted on.</summary>
+    public (LoanMonth? Month, LoanMonthStatus Status) LoanRowFor(Loan loan, string month)
+    {
+        var sched = LoanSchedule(loan, month);
+        var slice = sched.FirstOrDefault(x => x.Month == month);
+        return (slice, GetLoanStatus(loan, month));
+    }
+
+    /// <summary>Loan payments still owed this month — bank money out, exactly like a bank-funded bill.</summary>
+    public decimal LoanPaymentsDue(string month) =>
+        ActiveLoans().Select(l => LoanSchedule(l, month).FirstOrDefault(x => x.Month == month))
+                     .Where(x => x is { Paid: false })
+                     .Sum(x => x!.Payment);
+
+    /// <summary>Total still owed across every active loan.</summary>
+    public decimal LoanBalanceTotal(string month) => ActiveLoans().Sum(l => LoanBalance(l, month));
+
+    /// <summary>Loan payments recorded against a bank account, for <see cref="EffectiveBalance"/>.</summary>
+    private IEnumerable<(DateOnly Date, decimal Amount)> LoanPaymentsFrom(Guid accountId)
+    {
+        foreach (var loan in Data.Loans.Where(l => l.AccountId == accountId))
+        {
+            foreach (var st in Data.LoanStatuses.Where(s => s.LoanId == loan.Id))
+            {
+                if (st.Status is not (PayStatus.Paid or PayStatus.Partial) || st.AmountPaid <= 0) continue;
+                var (y, m) = ParseMonth(st.Month);
+                int day = Math.Clamp(loan.DueDay, 1, DateTime.DaysInMonth(y, m));
+                yield return (st.PaidDate ?? new DateOnly(y, m, day), st.AmountPaid);
+            }
+        }
     }
 
     // ---- repayment math ----
