@@ -285,9 +285,12 @@ public class UpdateService
         string log = Path.Combine(updatesDir, "update.log");
         string ext = Path.GetExtension(installerPath).ToLowerInvariant();
 
-        string runLine = ext == ".msi"
-            ? $"msiexec /i \"{installerPath}\" /qb /norestart"
-            : $"\"{installerPath}\"";
+        string runLine = ext switch
+        {
+            ".msi" => $"msiexec /i \"{installerPath}\" /qb /norestart",
+            ".exe" => $"\"{installerPath}\" /passive /norestart",
+            _ => $"\"{installerPath}\""
+        };
 
         // Write a pre-flight log entry so we know the launcher started
         try { File.WriteAllText(log, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Starting launcher (PID {pid}, installer: {installerPath})" + Environment.NewLine); } catch { }
