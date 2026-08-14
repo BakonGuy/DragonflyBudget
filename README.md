@@ -12,8 +12,6 @@ it remembers it. That's the whole deal.
 
 Grab the latest installer from the
 **[Releases page](https://github.com/BakonGuy/DragonflyBudget/releases/latest)**.
-Run the installer, launch Dragonfly, and you're done — no SDK, no command line,
-nothing else to install.
 
 > If you'd rather build from source, see [Building from source](#building-from-source) below.
 
@@ -66,7 +64,7 @@ remembers its own paid/cleared state.
 ### Requirements
 
 - Windows 10 or 11
-- The [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
+- The [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 
 ### Build & run
 
