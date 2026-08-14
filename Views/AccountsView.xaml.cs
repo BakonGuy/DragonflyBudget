@@ -137,7 +137,11 @@ public partial class AccountsView : UserControl
                 // Derived from the balance and the card's terms — never stored, so it can't go stale.
                 decimal min = B.MinimumPayment(card);
                 Place(table, RightText(min > 0 ? Fmt.Money(min) : "—", min > 0 ? Res("Text") : Res("TextDim")), row, 4);
-                Place(table, RightText(min > 0 ? Fmt.Ordinal(card.DueDay) : "—", Res("TextDim")), row, 5);
+                // An unset due day reads as "—", never as the 1st: a real day and a blank one have to
+                // look different or an unanswered field passes for an answer.
+                bool hasDue = card.DueDay > 0;
+                Place(table, RightText(min > 0 && hasDue ? Fmt.Ordinal(card.DueDay) : "—",
+                    min > 0 && !hasDue ? Res("Warn") : Res("TextDim")), row, 5);
 
                 var track = new Border { Background = Res("Bg"), CornerRadius = new CornerRadius(2), Height = 8, Margin = new Thickness(10, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center, ClipToBounds = true };
                 var fill = new Border { Background = pct > 80 ? Res("Bad") : pct > 50 ? Res("Warn") : Res("AccentStrong"), CornerRadius = new CornerRadius(2), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
@@ -250,13 +254,17 @@ public partial class AccountsView : UserControl
     {
         string name = string.IsNullOrWhiteSpace(acc.Name) ? "this account" : $"“{acc.Name}”";
         int points = B.Data.BalanceHistory.Count(e => e.AccountId == acc.Id);
-        int linkedBills = B.Data.Bills.Count(b => b.AccountId == acc.Id || b.PaysAccountId == acc.Id);
+        // The card's own payment bill is part of the card, not a bill the user wrote — it goes with
+        // it. Anything else merely references the account and is kept, just unlinked.
+        var paymentBills = B.Data.Bills.Where(b => b.PaysAccountId == acc.Id).ToList();
+        int linkedBills = B.Data.Bills.Count(b => b.AccountId == acc.Id && b.PaysAccountId != acc.Id);
 
         var parts = new List<string> { "the account" };
         if (points > 0) parts.Add($"{points} recorded balance point{(points == 1 ? "" : "s")}");
-        string removed = string.Join(" and ", parts);
+        if (paymentBills.Count > 0) parts.Add("its payment bill");
+        string removed = string.Join(", ", parts);
         string billNote = linkedBills > 0
-            ? $" {linkedBills} bill{(linkedBills == 1 ? "" : "s")} linked to it will be unlinked (the bills stay)."
+            ? $" {linkedBills} other bill{(linkedBills == 1 ? "" : "s")} linked to it will be unlinked (those bills stay)."
             : "";
 
         if (!ConfirmDialog.Ask(win, "Delete account permanently?",
@@ -264,11 +272,16 @@ public partial class AccountsView : UserControl
                 confirmText: "Delete permanently", danger: true))
             return;
 
-        // Both link directions: what the bill is paid from, and what it pays down.
+        // The payment bill is deleted outright: unlinking it instead would leave a $0 bill named
+        // after a card that no longer exists, billing the user forever with nothing behind it.
+        foreach (var pb in paymentBills)
+        {
+            B.Data.BillStatuses.RemoveAll(s => s.BillId == pb.Id);
+            B.Data.Bills.Remove(pb);
+        }
+        // Anything still pointing at the account is only funded by it, so it survives, unlinked.
         foreach (var b in B.Data.Bills.Where(b => b.AccountId == acc.Id))
             b.AccountId = null;
-        foreach (var b in B.Data.Bills.Where(b => b.PaysAccountId == acc.Id))
-            b.PaysAccountId = null;
         B.Data.BalanceHistory.RemoveAll(e => e.AccountId == acc.Id);
         B.Data.Banks.RemoveAll(a => a.Id == acc.Id);
         Save();

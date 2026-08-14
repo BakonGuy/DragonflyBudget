@@ -508,6 +508,15 @@ public partial class BillsView : UserControl
             });
             if (r.Bill.Recurrence == Recurrence.OneOff) nameRow.Children.Add(Badge("One-off", "TextDim", "TextDim"));
             if (r.Bill.AutoPay) nameRow.Children.Add(AccentBadge("Auto"));
+            // A card payment with nothing to compute from renders a bare $0.00 on the 1st, which reads
+            // as real data rather than missing information — and a $0 silently drops out of every
+            // total. Both gaps say so on the row instead of looking like an answer.
+            if (IsCardPayment(r))
+            {
+                if (r.Amount <= 0) nameRow.Children.Add(Badge("Set payment amount", "Warn", "Warn"));
+                if (B.FindAccount(r.Bill.PaysAccountId) is { DueDay: <= 0 })
+                    nameRow.Children.Add(Badge("Set due day", "Warn", "Warn"));
+            }
 
             var name = new StackPanel { Margin = new Thickness(10, 10, 6, 10), Opacity = op };
             name.Children.Add(nameRow);

@@ -13,12 +13,18 @@ namespace Dragonfly.Views;
 public class DayPicker : Grid
 {
     private readonly TextBox _box = new();
+    private readonly bool _allowUnset;
     private readonly Border _outer;
     private readonly Popup _popup = new() { StaysOpen = false, AllowsTransparency = true, Placement = PlacementMode.Bottom };
 
-    public DayPicker(int day = 1)
+    /// <param name="allowUnset">
+    /// Let the box be empty, meaning "no day chosen". Without this a day always has some value, so a
+    /// field the user never filled in is indistinguishable from one they deliberately set to the 1st.
+    /// </param>
+    public DayPicker(int day = 1, bool allowUnset = false)
     {
-        _box.Text = Math.Clamp(day, 1, 31).ToString();
+        _allowUnset = allowUnset;
+        _box.Text = allowUnset && day <= 0 ? "" : Math.Clamp(day, 1, 31).ToString();
         _box.MaxLength = 2;
         _box.Background = Brushes.Transparent;
         _box.BorderThickness = new Thickness(0);
@@ -29,7 +35,12 @@ public class DayPicker : Grid
         _box.VerticalContentAlignment = VerticalAlignment.Center;
         _box.Padding = new Thickness(8, 7, 4, 7);
         _box.PreviewTextInput += (_, e) => e.Handled = !int.TryParse(e.Text, out int _);
-        _box.LostFocus += (_, _) => _box.Text = Day.ToString();
+        // Re-normalise on blur, but never fill an intentionally empty box with a day of its own.
+        _box.LostFocus += (_, _) =>
+        {
+            if (_allowUnset && string.IsNullOrWhiteSpace(_box.Text)) return;
+            _box.Text = Day.ToString();
+        };
 
         var toggle = new ToggleButton { Style = St("IconToggle"), Width = 30 };
         // StaysOpen=false closes the popup on any outside click — including a click on the toggle
@@ -70,6 +81,9 @@ public class DayPicker : Grid
 
     /// <summary>Selected day, clamped to 1–31.</summary>
     public int Day => int.TryParse(_box.Text, out var d) ? Math.Clamp(d, 1, 31) : 1;
+
+    /// <summary>The chosen day, or 0 when the box was left empty (only possible with allowUnset).</summary>
+    public int DayOrUnset => _allowUnset && string.IsNullOrWhiteSpace(_box.Text) ? 0 : Day;
 
     private Border BuildGrid()
     {

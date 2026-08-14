@@ -85,6 +85,11 @@ public class BudgetService(DataStore store)
     // ---- bills ----
     public bool BillAppliesTo(Bill b, string month)
     {
+        // A card payment only exists to represent its card. Archive the card and the payment goes
+        // with it — otherwise a card the user has removed keeps billing them every month. Restoring
+        // the card brings it back, which is why this is a live check rather than an edit to the bill.
+        if (b.PaysAccountId != null && FindAccount(b.PaysAccountId) is { Archived: true }) return false;
+
         if (b.Repeat != null) return ScheduleHits(b.Repeat, b.StartMonth, b.EndMonth, month);
         return b.Recurrence == Recurrence.OneOff ? b.StartMonth == month : InRange(month, b.StartMonth, b.EndMonth);
     }
@@ -389,6 +394,13 @@ public class BudgetService(DataStore store)
         if (balance <= 0) return 0;
         decimal pct = card.MinPaymentPercent > 0 ? balance * card.MinPaymentPercent / 100m : 0;
         decimal min = Math.Max(card.MinPaymentFloor, pct);
+        // No percent/floor rule on this card: fall back to the payment the user entered for it.
+        // Cards created before the percent/floor fields existed — and any card where the user just
+        // typed what they pay — have only MonthlyPayment set. Without this the card's payment bill
+        // computes to 0 and silently vanishes from its own amount, the unpaid totals and the
+        // dashboard, which reads as "the amount I entered is gone".
+        if (min <= 0) min = card.MonthlyPayment;
+        if (min <= 0) return 0;
         return Math.Round(Math.Min(balance, min), 2, MidpointRounding.AwayFromZero);
     }
 
@@ -679,8 +691,11 @@ public class BudgetService(DataStore store)
         {
             decimal bal = EffectiveBalance(c);
             if (bal <= 0) continue;
+            // MonthlyPayment is the fallback, not the rule: a card with a percent/floor set uses
+            // that (it tracks the balance down), and a card without one still has the payment the
+            // user typed rather than counting as having no minimum at all.
             list.Add(new PayoffTarget(c.Id, "Credit card", c.Name, bal, c.AprPercent,
-                FixedPayment: 0, MinPercent: c.MinPaymentPercent, MinFloor: c.MinPaymentFloor,
+                FixedPayment: c.MonthlyPayment, MinPercent: c.MinPaymentPercent, MinFloor: c.MinPaymentFloor,
                 Where: "Accounts"));
         }
 

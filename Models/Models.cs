@@ -52,7 +52,10 @@ public class BankAccount
 
     // Card statement terms. The minimum payment is the industry-standard "greater of X% or $Y",
     // computed by BudgetService.MinimumPayment — never stored, so it can't go stale after a charge.
-    public int DueDay { get; set; } = 1;               // payment due date (day of month), 1-31
+    // Payment due date (day of month, 1-31). 0 = never set: defaulting this to 1 made a card the
+    // user hadn't filled in look exactly like one genuinely due on the 1st, so it stays unset until
+    // they say otherwise and the UI asks for it.
+    public int DueDay { get; set; }
     public decimal MinPaymentPercent { get; set; }     // e.g. 2 = 2% of the balance
     public decimal MinPaymentFloor { get; set; }       // e.g. 25 — the "or $25, whichever is greater"
 }

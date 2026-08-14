@@ -23,7 +23,7 @@ public static class AccountDialog
         var limit = new MoneyTextBox(a?.CreditLimit ?? 0);
         var apr = EditDialog.Text((a?.AprPercent ?? 0).ToString("0.##"), "e.g. 24.99");
         var payment = new MoneyTextBox(a?.MonthlyPayment ?? 0);
-        var dueDay = new DayPicker(a?.DueDay ?? 1);
+        var dueDay = new DayPicker(a?.DueDay ?? 0, allowUnset: true);
         var minPct = EditDialog.Text((a?.MinPaymentPercent ?? 0).ToString("0.##"), "e.g. 2");
         var minFloor = new MoneyTextBox(a?.MinPaymentFloor ?? 0);
         var showRepay = new CheckBox
@@ -57,7 +57,7 @@ public static class AccountDialog
         var aprField = dlg.AddTracked("Interest rate (APR %)", apr, full: false, rightColumn: true);
         var payField = dlg.AddTracked("Your monthly payment", payment, full: false);
         var showField = dlg.AddTracked("On repayment screen?", showRepay, full: false, rightColumn: true);
-        var dueField = dlg.AddTracked("Payment Due Date", dueDay, full: false);
+        var dueField = dlg.AddTracked("Payment due day (blank if unknown)", dueDay, full: false);
         // Statements quote a dollar minimum, not the percentage behind it. Rather than making the
         // user divide, let them type the two numbers off the statement and work it out here.
         var calcBtn = Btn("Work it out", "BtnSm", (_, _) => CalcPercent(dlg, balance, minPct));
@@ -140,7 +140,8 @@ public static class AccountDialog
             target.AprPercent = isCard ? ParseApr(apr.Text) : 0;
             target.MonthlyPayment = isCard ? payment.Value : 0;
             target.ShowInRepayment = isCard && showRepay.IsChecked == true;
-            target.DueDay = isCard ? dueDay.Day : 1;
+            // 0 when left blank, so an unanswered due date stays visibly unanswered.
+            target.DueDay = isCard ? dueDay.DayOrUnset : 0;
             target.MinPaymentPercent = isCard ? ParseApr(minPct.Text) : 0;
             target.MinPaymentFloor = isCard ? minFloor.Value : 0;
             // Record the balance through the service so history captures the manual entry.

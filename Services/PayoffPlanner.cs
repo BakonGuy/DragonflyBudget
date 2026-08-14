@@ -26,9 +26,12 @@ public record PayoffTarget(
     public decimal MinimumFor(decimal bal)
     {
         if (bal <= 0) return 0;
-        if (FixedPayment > 0) return Math.Min(bal, FixedPayment);
         decimal pct = MinPercent > 0 ? bal * MinPercent / 100m : 0;
         decimal min = Math.Max(MinFloor, pct);
+        // The percent/floor rule wins where it exists, because it tracks the balance down. Where it
+        // doesn't, the fixed payment the user entered is the only figure we have — and treating that
+        // as "no minimum" would leave the debt accruing interest while the plan pays it nothing.
+        if (min <= 0) min = FixedPayment;
         return min <= 0 ? 0 : Math.Min(bal, min);
     }
 
