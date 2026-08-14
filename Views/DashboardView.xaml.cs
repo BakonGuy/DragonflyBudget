@@ -111,10 +111,12 @@ public partial class DashboardView : UserControl
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var hover = new RowHover(table, 4);
             foreach (var r in rows)
             {
                 int row = table.RowDefinitions.Count;
                 table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                hover.Add(row);
 
                 var name = new WrapPanel { Margin = new Thickness(0, 9, 0, 9) };
                 name.Children.Add(new TextBlock
@@ -149,6 +151,7 @@ public partial class DashboardView : UserControl
                 pay.Margin = new Thickness(10, 6, 0, 6);
                 Place(table, pay, row, 3);
             }
+            hover.Attach();
             panel.Children.Add(table);
         }
         return Card(panel, margin: new Thickness(0, 0, 0, 18));
@@ -172,10 +175,12 @@ public partial class DashboardView : UserControl
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = MoneyCol });
             table.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var hover = new RowHover(table, 4);
             foreach (var r in rows)
             {
                 int row = table.RowDefinitions.Count;
                 table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                hover.Add(row);
                 double op = r.Status.Cleared ? 0.45 : 1.0;
 
                 var nm = new TextBlock { Text = r.Item.Name, Margin = new Thickness(0, 9, 0, 9), Opacity = op, VerticalAlignment = VerticalAlignment.Center };
@@ -207,6 +212,7 @@ public partial class DashboardView : UserControl
                     Place(table, clr, row, 3);
                 }
             }
+            hover.Attach();
             panel.Children.Add(table);
         }
         return Card(panel, margin: new Thickness(0, 0, 0, 18));

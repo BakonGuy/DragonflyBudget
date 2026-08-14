@@ -58,11 +58,13 @@ public partial class PendingView : UserControl
             AddHeader(table, "", 4);
 
             var markers = new List<(FrameworkElement, object)>();
+            var hover = new RowHover(table, 5);
             foreach (var r in rows)
             {
                 int row = table.RowDefinitions.Count;
                 table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 double op = r.Status.Cleared ? 0.5 : 1.0;
+                hover.Add(row);
 
                 var name = new StackPanel { Margin = new Thickness(10, 9, 6, 9), Opacity = op };
                 var nameRow = new WrapPanel();
@@ -72,8 +74,10 @@ public partial class PendingView : UserControl
                 name.Children.Add(nameRow);
                 if (!string.IsNullOrWhiteSpace(r.Item.Notes))
                     name.Children.Add(new TextBlock { Text = r.Item.Notes, Foreground = Res("TextFaint"), FontSize = 12 });
-                Place(table, name, row, 0);
-                markers.Add((name, r.Item));
+                var clickItem = r.Item;
+                var nameCell = RowHover.ClickToEdit(name, () => EditItem(clickItem));
+                Place(table, nameCell, row, 0);
+                markers.Add((nameCell, r.Item));
 
                 string when = r.Item.ExpectedDate?.ToString("MMM d")
                               ?? (string.IsNullOrWhiteSpace(r.Item.Timeframe) ? "—" : r.Item.Timeframe);
@@ -92,6 +96,7 @@ public partial class PendingView : UserControl
                 acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditItem(r.Item), tooltip: "Edit")));
                 Place(table, acts, row, 4);
             }
+            hover.Attach();
             if (manual) DragReorder.AttachTable(table, markers, MoveItem);
             Body.Children.Add(Card(table));
         }

@@ -59,14 +59,17 @@ public partial class AccountsView : UserControl
             AddHeader(table, "BALANCE", 1, right: true);
             AddHeader(table, "", 2);
 
+            var hover = new RowHover(table, 3);
             foreach (var acc in banks)
             {
                 var row = table.RowDefinitions.Count;
                 table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                hover.Add(row);
 
                 var nameCol = new StackPanel { Margin = new Thickness(10, 10, 6, 10), VerticalAlignment = VerticalAlignment.Center };
                 nameCol.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(acc.Name) ? "(unnamed)" : acc.Name, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-                Place(table, nameCol, row, 0);
+                var clickAcc = acc;
+                Place(table, RowHover.ClickToEdit(nameCol, () => EditAccount(clickAcc)), row, 0);
 
                 var bal = new TextBox
                 {
@@ -86,6 +89,7 @@ public partial class AccountsView : UserControl
                 acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditAccount(acc), tooltip: "Edit")));
                 Place(table, acts, row, 2);
             }
+            hover.Attach();
             bankPanel.Children.Add(Card(table));
         }
         Body.Children.Add(bankPanel);
@@ -107,16 +111,19 @@ public partial class AccountsView : UserControl
             AddHeader(table, "UTILIZATION", 6);
             AddHeader(table, "", 7);
 
+            var cardHover = new RowHover(table, 8);
             foreach (var card in cards)
             {
                 int row = table.RowDefinitions.Count;
                 table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                cardHover.Add(row);
                 decimal bal = B.EffectiveBalance(card);
                 double pct = card.CreditLimit > 0 ? Math.Clamp((double)bal / (double)card.CreditLimit * 100.0, 0, 100) : 0;
 
                 var nameCol = new StackPanel { Margin = new Thickness(10, 10, 6, 10), VerticalAlignment = VerticalAlignment.Center };
                 nameCol.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(card.Name) ? "(unnamed)" : card.Name, FontWeight = FontWeights.SemiBold });
-                Place(table, nameCol, row, 0);
+                var clickCard = card;
+                Place(table, RowHover.ClickToEdit(nameCol, () => EditAccount(clickCard)), row, 0);
 
                 Place(table, RightText(Fmt.Money(bal), bal > 0 ? Res("Bad") : Res("Text")), row, 1);
 
@@ -145,6 +152,7 @@ public partial class AccountsView : UserControl
                 acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditAccount(card), tooltip: "Edit")));
                 Place(table, acts, row, 7);
             }
+            cardHover.Attach();
             cardPanel.Children.Add(Card(table));
             Body.Children.Add(cardPanel);
         }

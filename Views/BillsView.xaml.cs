@@ -158,6 +158,7 @@ public partial class BillsView : UserControl
         AddHeader(table, "", 6);
 
         var today = DateOnly.FromDateTime(DateTime.Today);
+        var hover = new RowHover(table, 7);
         foreach (var (loan, slice) in loans)
         {
             var m = slice.Month!;
@@ -175,6 +176,7 @@ public partial class BillsView : UserControl
                 var bg = new Border { Background = new SolidColorBrush(((SolidColorBrush)Res("Bad")).Color) { Opacity = 0.06 } };
                 Grid.SetRow(bg, row); Grid.SetColumnSpan(bg, 7); table.Children.Add(bg);
             }
+            hover.Add(row);
 
             bool stuck = BudgetService.NeverAmortizes(m);
 
@@ -190,7 +192,8 @@ public partial class BillsView : UserControl
                 Text = loan.AprPercent > 0 ? $"{loan.AprPercent:0.##}% APR" : "interest-free",
                 Foreground = Res("TextFaint"), FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0),
             });
-            Place(table, name, row, 0);
+            var nameLoan = loan;
+            Place(table, RowHover.ClickToEdit(name, () => EditLoan(nameLoan)), row, 0);
 
             var due = new WrapPanel { Margin = new Thickness(10, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Opacity = op };
             due.Children.Add(new TextBlock { Text = dueDate.ToString("MMM d"), Foreground = Res("TextDim"), VerticalAlignment = VerticalAlignment.Center });
@@ -240,6 +243,7 @@ public partial class BillsView : UserControl
             Place(table, acts, row, 6);
         }
 
+        hover.Attach();
         AddSection(PackIconRemixIconKind.BankFill, "Loans", table);
         ColumnResize.Apply(table, "bills.loans", S.Settings, S.SaveQuiet,
             cols: new[] { 2, 3, 4, 5 }, handleCols: new[] { 1, 3, 4, 5 });
@@ -474,6 +478,7 @@ public partial class BillsView : UserControl
         AddHeader(table, "", 5);
 
         var markers = new List<(FrameworkElement, object)>();
+        var hover = new RowHover(table, colWidths.Length);
         foreach (var r in rows)
         {
             int row = table.RowDefinitions.Count;
@@ -487,6 +492,9 @@ public partial class BillsView : UserControl
                 var bg = new Border { Background = new SolidColorBrush(((SolidColorBrush)Res("Bad")).Color) { Opacity = 0.06 } };
                 Grid.SetRow(bg, row); Grid.SetColumnSpan(bg, 6); table.Children.Add(bg);
             }
+
+            // Full-width highlight so it's obvious which row the buttons on the far right belong to.
+            hover.Add(row);
 
             // name
             var nameRow = new WrapPanel();
@@ -506,8 +514,11 @@ public partial class BillsView : UserControl
             // Which month this row actually belongs to, for rows that aren't from the viewed one.
             if (subLabel?.Invoke(r) is { Length: > 0 } sub)
                 name.Children.Add(new TextBlock { Text = sub, Foreground = Res("Bad"), FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0) });
-            Place(table, name, row, 0);
-            markers.Add((name, r.Bill));
+
+            var clickRow = r;
+            var nameCell = RowHover.ClickToEdit(name, () => EditBillOrCard(clickRow));
+            Place(table, nameCell, row, 0);
+            markers.Add((nameCell, r.Bill));
 
             // due
             var due = new WrapPanel { Margin = new Thickness(10, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Opacity = op };
@@ -580,6 +591,7 @@ public partial class BillsView : UserControl
             Place(table, acts, row, 5);
         }
 
+        hover.Attach();
         if (manual) DragReorder.AttachTable(table, markers, MoveBill);
         return table;
     }

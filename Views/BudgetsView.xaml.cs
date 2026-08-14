@@ -59,10 +59,12 @@ public partial class BudgetsView : UserControl
         AddHeader(table, "", 5);
 
         var markers = new List<(FrameworkElement, object)>();
+        var hover = new RowHover(table, 6);
         foreach (var cat in cats)
         {
             int row = table.RowDefinitions.Count;
             table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            hover.Add(row);
             var c = cat;
             decimal spent = B.BudgetSpent(c.Id, month);
             decimal remaining = c.MonthlyCap - spent;
@@ -71,8 +73,9 @@ public partial class BudgetsView : UserControl
             var nameCol = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 12, 6, 12), VerticalAlignment = VerticalAlignment.Center };
             nameCol.Children.Add(DragReorder.Handle(c));
             nameCol.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(c.Name) ? "(unnamed)" : c.Name, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-            Place(table, nameCol, row, 0);
-            markers.Add((nameCol, c));
+            var nameCell = RowHover.ClickToEdit(nameCol, () => EditCategory(c));
+            Place(table, nameCell, row, 0);
+            markers.Add((nameCell, c));
 
             // Editable "spent so far" for the month.
             var spentBox = new TextBox
@@ -111,6 +114,7 @@ public partial class BudgetsView : UserControl
             Place(table, acts, row, 5);
         }
 
+        hover.Attach();
         DragReorder.AttachTable(table, markers, MoveCategory);
         Body.Children.Add(Card(table));
         Body.Children.Add(new TextBlock

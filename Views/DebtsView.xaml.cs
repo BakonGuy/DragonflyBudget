@@ -53,18 +53,20 @@ public partial class DebtsView : UserControl
             AddHeader(table, "PROGRESS", 4);
             AddHeader(table, "", 5);
 
+            var hover = new RowHover(table, 6);
             foreach (var d in debts)
             {
                 var debt = d;
                 int row = table.RowDefinitions.Count;
                 table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                hover.Add(row);
                 double pct = debt.TotalOwed > 0 ? Math.Clamp((double)(debt.AmountPaid / debt.TotalOwed) * 100, 0, 100) : 0;
 
                 var name = new StackPanel { Margin = new Thickness(10, 10, 6, 10) };
                 name.Children.Add(new TextBlock { Text = debt.Name, FontWeight = FontWeights.SemiBold });
                 if (!string.IsNullOrWhiteSpace(debt.Notes))
                     name.Children.Add(new TextBlock { Text = debt.Notes, Foreground = Res("TextFaint"), FontSize = 12, TextWrapping = TextWrapping.Wrap });
-                Place(table, name, row, 0);
+                Place(table, RowHover.ClickToEdit(name, () => EditDebt(debt)), row, 0);
 
                 Place(table, RightText(Fmt.Money(debt.TotalOwed)), row, 1);
 
@@ -90,6 +92,7 @@ public partial class DebtsView : UserControl
                 acts.Children.Add(Space(IconButton(PackIconRemixIconKind.EditFill, "BtnGhost", (_, _) => EditDebt(debt), tooltip: "Edit")));
                 Place(table, acts, row, 5);
             }
+            hover.Attach();
             Body.Children.Add(Card(table));
         }
 
